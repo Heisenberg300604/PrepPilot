@@ -1,0 +1,5 @@
+{
+  "buildCommand": "npm run build:web",
+  "outputDirectory": "dist",
+  "rewrites": [{ "source": "/((?!assets/|favicon.svg|manifest.webmanifest).*)", "destination": "/index.html" }]
+}

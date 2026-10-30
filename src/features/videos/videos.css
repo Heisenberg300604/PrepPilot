@@ -1,0 +1,93 @@
+.vrow {
+  display: grid;
+  grid-template-columns: auto 148px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.vrow + .vrow {
+  margin-top: 8px;
+}
+.vrow:hover {
+  border-color: var(--border-strong);
+}
+.vrow.is-removed {
+  opacity: 0.65;
+  background: var(--surface-2);
+}
+.vrow-check {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.vrow-thumb {
+  position: relative;
+  display: block;
+}
+.vrow-index {
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  min-width: 22px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: rgba(10, 12, 20, 0.78);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-align: center;
+}
+.vrow-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.vrow-title {
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: none;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.vrow-title:hover {
+  color: var(--accent-text);
+  text-decoration: underline;
+}
+.vrow-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.vrow-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.fav-btn.is-fav {
+  color: var(--amber);
+}
+.fav-btn.is-fav svg {
+  fill: currentColor;
+}
+.badge-warn {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+@media (max-width: 640px) {
+  .vrow {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 10px;
+  }
+  .vrow-thumb {
+    display: none;
+  }
+}

@@ -1,0 +1,360 @@
+// PrepPilot data model.
+// Identity lives in Clerk; UserProfile only stores app-specific preferences keyed by the Clerk user id.
+// Every user-owned table carries `userId` (-> UserProfile.id) so ownership can be enforced on every query.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../server/src/generated/prisma"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Theme {
+  LIGHT
+  DARK
+  SYSTEM
+}
+
+enum ExamStatus {
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+enum ProgressStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum VideoAvailability {
+  AVAILABLE
+  UNAVAILABLE
+  PRIVATE
+  REMOVED
+  UNKNOWN
+}
+
+enum TaskStatus {
+  TODO
+  DONE
+}
+
+enum ActivityType {
+  VIDEO_OPENED
+  VIDEO_COMPLETED
+  PLAYLIST_IMPORTED
+  PLAYLIST_SYNCED
+  TASK_COMPLETED
+  FOLDER_CREATED
+  EXAM_CREATED
+}
+
+model UserProfile {
+  id                      String   @id @default(cuid())
+  clerkUserId             String   @unique
+  displayName             String?
+  avatarUrl               String?
+  preferredTheme          Theme    @default(SYSTEM)
+  dailyStudyTargetMinutes Int      @default(120)
+  /// Percentage of playback after which the player suggests marking a video complete (0 disables).
+  completionSuggestPercent Int     @default(90)
+  onboardingCompletedAt   DateTime?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  exams          Exam[]
+  subjects       Subject[]
+  folders        Folder[]
+  playlists      Playlist[]
+  videos         Video[]
+  playlistPlacements PlaylistPlacement[]
+  videoPlacements    VideoPlacement[]
+  progress       VideoProgress[]
+  notes          VideoNote[]
+  favorites      Favorite[]
+  tasks          StudyTask[]
+  activity       StudyActivity[]
+}
+
+model Exam {
+  id           String     @id @default(cuid())
+  userId       String
+  name         String
+  description  String?
+  examDate     DateTime?  @db.Date
+  status       ExamStatus @default(ACTIVE)
+  color        String?
+  icon         String?
+  displayOrder Int        @default(0)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  user     UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subjects Subject[]
+  tasks    StudyTask[]
+  playlistPlacements PlaylistPlacement[]
+  videoPlacements    VideoPlacement[]
+
+  @@index([userId, status, displayOrder])
+}
+
+model Subject {
+  id           String    @id @default(cuid())
+  userId       String
+  examId       String
+  name         String
+  description  String?
+  color        String?
+  icon         String?
+  displayOrder Int       @default(0)
+  archivedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user    UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exam    Exam        @relation(fields: [examId], references: [id], onDelete: Cascade)
+  folders Folder[]
+  tasks   StudyTask[]
+  playlistPlacements PlaylistPlacement[]
+  videoPlacements    VideoPlacement[]
+
+  @@index([userId])
+  @@index([examId, displayOrder])
+}
+
+model Folder {
+  id             String   @id @default(cuid())
+  userId         String
+  subjectId      String
+  parentFolderId String?
+  name           String
+  description    String?
+  displayOrder   Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user     UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject  Subject     @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  parent   Folder?     @relation("FolderTree", fields: [parentFolderId], references: [id], onDelete: Cascade)
+  children Folder[]    @relation("FolderTree")
+  tasks    StudyTask[]
+  playlistPlacements PlaylistPlacement[]
+  videoPlacements    VideoPlacement[]
+
+  @@index([userId])
+  @@index([subjectId, parentFolderId, displayOrder])
+}
+
+model Playlist {
+  id                String    @id @default(cuid())
+  userId            String
+  /// Null for local (manually created) collections.
+  youtubePlaylistId String?
+  title             String
+  description       String?
+  thumbnailUrl      String?
+  sourceUrl         String?
+  channelTitle      String?
+  /// True once the user edited the title/description locally; sync then leaves those fields alone.
+  isCustomized      Boolean   @default(false)
+  lastSyncedAt      DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user       UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items      PlaylistVideo[]
+  placements PlaylistPlacement[]
+  tasks      StudyTask[]
+  activity   StudyActivity[]
+
+  @@unique([userId, youtubePlaylistId])
+  @@index([userId, createdAt])
+}
+
+model Video {
+  id                String            @id @default(cuid())
+  userId            String
+  youtubeVideoId    String?
+  title             String
+  description       String?
+  thumbnailUrl      String?
+  sourceUrl         String?
+  channelTitle      String?
+  durationSeconds   Int?
+  isCustomized      Boolean           @default(false)
+  availabilityStatus VideoAvailability @default(UNKNOWN)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  user       UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  playlistItems PlaylistVideo[]
+  placements VideoPlacement[]
+  progress   VideoProgress[]
+  notes      VideoNote[]
+  favorites  Favorite[]
+  tasks      StudyTask[]
+  activity   StudyActivity[]
+
+  @@unique([userId, youtubeVideoId])
+  @@index([userId, createdAt])
+}
+
+model PlaylistVideo {
+  id         String   @id @default(cuid())
+  playlistId String
+  videoId    String
+  position   Int
+  /// Set during sync when the video no longer appears in the source playlist. Never deleted automatically.
+  removedFromSource Boolean @default(false)
+  createdAt  DateTime @default(now())
+
+  playlist Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  video    Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([playlistId, videoId])
+  @@index([playlistId, position])
+  @@index([videoId])
+}
+
+/// Where a playlist appears in the hierarchy. folderId null = attached directly to the subject.
+/// Separate tables per content type keep real foreign keys (no polymorphic ids).
+model PlaylistPlacement {
+  id         String   @id @default(cuid())
+  userId     String
+  examId     String
+  subjectId  String
+  folderId   String?
+  playlistId String
+  displayOrder Int    @default(0)
+  createdAt  DateTime @default(now())
+
+  user     UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exam     Exam        @relation(fields: [examId], references: [id], onDelete: Cascade)
+  subject  Subject     @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  folder   Folder?     @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  playlist Playlist    @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+
+  // Uniqueness for (playlistId, subjectId, folderId) incl. NULL folderId is enforced by partial unique indexes in the migration.
+  @@index([userId])
+  @@index([subjectId, folderId])
+  @@index([playlistId])
+}
+
+model VideoPlacement {
+  id        String   @id @default(cuid())
+  userId    String
+  examId    String
+  subjectId String
+  folderId  String?
+  videoId   String
+  displayOrder Int   @default(0)
+  createdAt DateTime @default(now())
+
+  user    UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exam    Exam        @relation(fields: [examId], references: [id], onDelete: Cascade)
+  subject Subject     @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  folder  Folder?     @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  video   Video       @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([subjectId, folderId])
+  @@index([videoId])
+}
+
+model VideoProgress {
+  id                  String         @id @default(cuid())
+  userId              String
+  videoId             String
+  status              ProgressStatus @default(NOT_STARTED)
+  lastPositionSeconds Int            @default(0)
+  lastStudiedAt       DateTime?
+  completedAt         DateTime?
+  updatedAt           DateTime       @updatedAt
+
+  user  UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  video Video       @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, videoId])
+  @@index([userId, status])
+  @@index([userId, lastStudiedAt])
+}
+
+model VideoNote {
+  id        String   @id @default(cuid())
+  userId    String
+  videoId   String
+  content   String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  video Video       @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, videoId])
+}
+
+model Favorite {
+  id        String   @id @default(cuid())
+  userId    String
+  videoId   String
+  createdAt DateTime @default(now())
+
+  user  UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  video Video       @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, videoId])
+  @@index([userId, createdAt])
+}
+
+model StudyTask {
+  id                       String     @id @default(cuid())
+  userId                   String
+  examId                   String?
+  subjectId                String?
+  videoId                  String?
+  playlistId               String?
+  folderId                 String?
+  title                    String
+  description              String?
+  /// Calendar date (no time zone). The client sends the user's local YYYY-MM-DD.
+  scheduledDate            DateTime   @db.Date
+  estimatedDurationMinutes Int        @default(30)
+  status                   TaskStatus @default(TODO)
+  completedAt              DateTime?
+  createdAt                DateTime   @default(now())
+  updatedAt                DateTime   @updatedAt
+
+  user     UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exam     Exam?       @relation(fields: [examId], references: [id], onDelete: SetNull)
+  subject  Subject?    @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+  video    Video?      @relation(fields: [videoId], references: [id], onDelete: SetNull)
+  playlist Playlist?   @relation(fields: [playlistId], references: [id], onDelete: SetNull)
+  folder   Folder?     @relation(fields: [folderId], references: [id], onDelete: SetNull)
+
+  @@index([userId, scheduledDate])
+  @@index([userId, status, scheduledDate])
+}
+
+model StudyActivity {
+  id           String       @id @default(cuid())
+  userId       String
+  activityType ActivityType
+  videoId      String?
+  playlistId   String?
+  examId       String?
+  subjectId    String?
+  folderId     String?
+  taskId       String?
+  metadata     Json?
+  createdAt    DateTime     @default(now())
+
+  user     UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  video    Video?      @relation(fields: [videoId], references: [id], onDelete: SetNull)
+  playlist Playlist?   @relation(fields: [playlistId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+}

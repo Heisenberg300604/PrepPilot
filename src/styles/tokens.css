@@ -1,0 +1,77 @@
+/* PrepPilot design tokens. Light is default; dark is applied via [data-theme="dark"] on <html>. */
+:root {
+  color-scheme: light;
+  --font-body: 'DM Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-head: 'Manrope', 'DM Sans', system-ui, sans-serif;
+
+  --bg: #f6f7fb;
+  --surface: #ffffff;
+  --surface-2: #f1f3f9;
+  --surface-3: #e7eaf3;
+  --border: #e1e4ed;
+  --border-strong: #cdd2e0;
+  --text: #1b1f2e;
+  --text-2: #4c566c;
+  --text-3: #66708a;
+
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-contrast: #ffffff;
+  --accent-soft: #eceafe;
+  --accent-text: #4338ca;
+
+  --green: #12724f;
+  --green-soft: #e3f5ec;
+  --amber: #8a5400;
+  --amber-soft: #fff2d8;
+  --red: #b42323;
+  --red-soft: #fdeaea;
+  --blue: #1d5fb8;
+  --blue-soft: #e5f0fd;
+
+  --shadow-sm: 0 1px 2px rgba(20, 25, 50, 0.06);
+  --shadow: 0 4px 16px rgba(20, 25, 50, 0.08);
+  --shadow-lg: 0 18px 50px rgba(20, 25, 50, 0.18);
+  --scrim: rgba(14, 17, 30, 0.5);
+
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --sidebar-w: 256px;
+  --sidebar-w-collapsed: 72px;
+  --topbar-h: 60px;
+  --focus: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0e1117;
+  --surface: #151a23;
+  --surface-2: #1c222d;
+  --surface-3: #262d3a;
+  --border: #2a3140;
+  --border-strong: #3a4357;
+  --text: #eef1f7;
+  --text-2: #b0b8c9;
+  --text-3: #8f99ad;
+
+  --accent: #8b87ff;
+  --accent-hover: #a29fff;
+  --accent-contrast: #0e1117;
+  --accent-soft: #25254a;
+  --accent-text: #b4b1ff;
+
+  --green: #5fd49b;
+  --green-soft: #153528;
+  --amber: #f2c46d;
+  --amber-soft: #3a2c15;
+  --red: #ff8f8f;
+  --red-soft: #3d2124;
+  --blue: #7db4f5;
+  --blue-soft: #172b46;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 18px 50px rgba(0, 0, 0, 0.55);
+  --scrim: rgba(0, 0, 0, 0.62);
+}

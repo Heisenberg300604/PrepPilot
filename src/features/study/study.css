@@ -1,0 +1,136 @@
+.study {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 24px;
+  align-items: start;
+}
+.study-main,
+.study-side {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.player-frame {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.player-frame > div,
+.player-frame iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.player-problem {
+  aspect-ratio: 16 / 9;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  text-align: center;
+  padding: 24px;
+  background: var(--surface-2);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+}
+.player-problem p {
+  color: var(--text-2);
+  max-width: 420px;
+}
+.study-title {
+  font-size: 22px;
+  overflow-wrap: anywhere;
+}
+.study-ctx {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+.study-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.study-prompt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 500;
+}
+.study-prompt.warn {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+.study-prompt .spacer {
+  flex: 1;
+}
+.notes-card {
+  display: grid;
+  gap: 8px;
+}
+.notes-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.notes-card textarea {
+  min-height: 220px;
+  resize: vertical;
+}
+.note-state {
+  font-size: 12.5px;
+  color: var(--text-3);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.note-state.error {
+  color: var(--red);
+  font-weight: 600;
+}
+.queue {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 340px;
+  overflow-y: auto;
+}
+.queue a {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 8px 6px;
+  border-radius: 8px;
+  text-decoration: none;
+  color: var(--text);
+  font-size: 13.5px;
+}
+.queue a:hover {
+  background: var(--surface-2);
+}
+.queue a[aria-current='true'] {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.queue svg.done {
+  color: var(--green);
+}
+@media (max-width: 1060px) {
+  .study {
+    grid-template-columns: 1fr;
+  }
+}

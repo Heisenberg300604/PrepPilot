@@ -1,0 +1,10 @@
+{
+  "name": "PrepPilot",
+  "short_name": "PrepPilot",
+  "description": "Your preparation. Your pace. Your progress.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f7fb",
+  "theme_color": "#4f46e5",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
