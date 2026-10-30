@@ -1,5 +1,5 @@
 import { AlertTriangle, Info, ListVideo } from 'lucide-react';
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Dialog, TextField, Thumb } from '@/components/ui';
 import { DestinationPicker } from '@/features/common/DestinationPicker';
@@ -9,13 +9,15 @@ import { useMeta } from '@/lib/hooks';
 import { toast } from '@/lib/toast';
 import type { Destination, PlaylistPreview } from '@/lib/types';
 import { parsePlaylistUrl } from '@/features/videos/youtubeUrl';
-import { importErrorMessage } from './helpers';
+import { allSelected, importErrorMessage, importLabel, initialSelection, setRange, toggleId } from './helpers';
 import { useImportPlaylist, usePreviewPlaylist } from './queries';
 import './playlists.css';
 
 export default function ImportPlaylistDialog({ destination = null, onClose }: { destination?: Destination | null; onClose: () => void }) {
   const [url, setUrl] = useState('');
   const [preview, setPreview] = useState<PlaylistPreview | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const lastClicked = useRef<number | null>(null);
   const [dest, setDest] = useState<Destination | null>(destination);
   const [error, setError] = useState<{ message: string; retry: boolean } | null>(null);
   const [fieldError, setFieldError] = useState<string | null>(null);
@@ -34,20 +36,32 @@ export default function ImportPlaylistDialog({ destination = null, onClose }: { 
     if (!parsePlaylistUrl(url)) return setFieldError('Paste a YouTube playlist link containing "list=…". Private lists such as Watch later cannot be imported.');
     setFieldError(null);
     setPreview(null);
-    previewMut.mutate({ url: url.trim() }, { onSuccess: setPreview, onError: (err) => setError(importErrorMessage(err)) });
+    previewMut.mutate(
+      { url: url.trim() },
+      {
+        onSuccess: (p) => {
+          setPreview(p);
+          setSelected(initialSelection(p.videos, p.excludedVideoIds));
+          lastClicked.current = null;
+        },
+        onError: (err) => setError(importErrorMessage(err)),
+      },
+    );
   };
 
   const runImport = () => {
     if (!preview) return;
+    if (selected.size === 0) return setError({ message: 'Select at least one video to import.', retry: false });
     if (!dest) return setDestError('Choose where this playlist should live.');
     setDestError(null);
     setError(null);
     importMut.mutate(
-      { url: url.trim(), subjectId: dest.subjectId, folderId: dest.folderId },
+      { url: url.trim(), subjectId: dest.subjectId, folderId: dest.folderId, selectedVideoIds: [...selected] },
       {
         onSuccess: (r) => {
           const parts = [`${plural(r.createdVideos, 'new video')}`];
           if (r.reusedVideos) parts.push(`${plural(r.reusedVideos, 'already in your library', 'already in your library')} (progress kept)`);
+          if (r.skippedVideos) parts.push(`${r.skippedVideos} left out`);
           toast.success(`Imported “${r.playlist.title}” — ${parts.join(', ')}.`);
           onClose();
           nav(`/playlists/${r.playlist.id}`);
@@ -70,8 +84,8 @@ export default function ImportPlaylistDialog({ destination = null, onClose }: { 
             Cancel
           </Button>
           {preview && (
-            <Button variant="primary" onClick={runImport} loading={importMut.isPending} disabled={unconfigured}>
-              Import {plural(preview.videoCount, 'video')}
+            <Button variant="primary" onClick={runImport} loading={importMut.isPending} disabled={unconfigured || selected.size === 0}>
+              {importLabel(selected.size, preview.videoCount)}
             </Button>
           )}
         </>
@@ -158,18 +172,54 @@ export default function ImportPlaylistDialog({ destination = null, onClose }: { 
                 <span>This playlist is very long. Only the first {preview.videoCount} videos will be imported.</span>
               </div>
             )}
-            <ol className="preview-list" aria-label="Videos in this playlist" tabIndex={0}>
-              {preview.videos.map((v) => (
-                <li key={v.youtubeVideoId}>
-                  <span className="preview-num">{v.position + 1}</span>
-                  <Thumb src={v.thumbnailUrl} />
-                  <span className="truncate" title={v.title}>
-                    {v.title}
-                  </span>
-                  <span className="muted">{v.availability === 'AVAILABLE' ? formatDuration(v.durationSeconds) : 'Unavailable'}</span>
-                </li>
-              ))}
+            <div className="preview-toolbar">
+              <span role="status" aria-live="polite">
+                <strong>{selected.size}</strong> of {preview.videoCount} selected
+              </span>
+              <span className="row">
+                <Button size="sm" variant="ghost" onClick={() => setSelected(new Set(preview.videos.map((v) => v.youtubeVideoId)))} disabled={allSelected(selected, preview.videoCount)}>
+                  Select all
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())} disabled={selected.size === 0}>
+                  Select none
+                </Button>
+              </span>
+            </div>
+            {preview.excludedVideoIds.length > 0 && (
+              <div className="import-notice info" role="status">
+                <Info size={18} aria-hidden />
+                <span>{plural(preview.excludedVideoIds.length, 'video')} you removed from this playlist before {preview.excludedVideoIds.length === 1 ? 'is' : 'are'} left unchecked. Tick {preview.excludedVideoIds.length === 1 ? 'it' : 'them'} to bring {preview.excludedVideoIds.length === 1 ? 'it' : 'them'} back.</span>
+              </div>
+            )}
+            <ol className="preview-list" aria-label="Videos in this playlist. Untick any you do not want." tabIndex={0}>
+              {preview.videos.map((v, i) => {
+                const on = selected.has(v.youtubeVideoId);
+                return (
+                  <li key={v.youtubeVideoId} className={on ? '' : 'is-off'}>
+                    <input
+                      type="checkbox"
+                      className="preview-check"
+                      checked={on}
+                      aria-label={`Include ${v.title}`}
+                      onChange={() => {}}
+                      onClick={(e) => {
+                        const ids = preview.videos.map((x) => x.youtubeVideoId);
+                        if (e.shiftKey && lastClicked.current !== null) setSelected((s) => setRange(s, ids, lastClicked.current!, i, !on));
+                        else setSelected((s) => toggleId(s, v.youtubeVideoId));
+                        lastClicked.current = i;
+                      }}
+                    />
+                    <span className="preview-num">{v.position + 1}</span>
+                    <Thumb src={v.thumbnailUrl} />
+                    <span className="truncate" title={v.title}>
+                      {v.title}
+                    </span>
+                    <span className="muted">{v.availability === 'AVAILABLE' ? formatDuration(v.durationSeconds) : 'Unavailable'}</span>
+                  </li>
+                );
+              })}
             </ol>
+            <p className="muted small">Tip: hold Shift while clicking to select a range. Videos you leave out are remembered, so a later sync will not add them back.</p>
             <div>
               <h3 style={{ marginBottom: 10 }}>
                 <ListVideo size={16} aria-hidden style={{ verticalAlign: '-2px' }} /> Where should it go?

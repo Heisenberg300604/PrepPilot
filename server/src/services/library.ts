@@ -154,3 +154,38 @@ export async function labelLocations(db: Db, userId: string, locs: { examId: str
     return { ...l, examName: ex.get(l.examId) ?? '', subjectName: sj.get(l.subjectId) ?? '', folderPath };
   });
 }
+
+/**
+ * Removes videos from a playlist (the videos' own records are not touched unless nothing else uses them).
+ * For imported playlists the removal is remembered as an exclusion so sync never silently re-adds them.
+ * `pruneOrphans` deletes videos left with no playlist, placement, favourite, progress or note — safe because
+ * nothing of the user's is attached to them; used for imported playlists, not hand-built collections.
+ */
+export async function removePlaylistItems(tx: Tx, userId: string, playlist: { id: string; youtubePlaylistId: string | null }, videoIds: string[], pruneOrphans: boolean) {
+  const items = await tx.playlistVideo.findMany({ where: { playlistId: playlist.id, videoId: { in: videoIds } }, include: { video: true } });
+  if (!items.length) return { removed: 0, deletedVideos: 0 };
+  if (playlist.youtubePlaylistId) {
+    const rows = items
+      .filter((i) => i.video.youtubeVideoId)
+      .map((i) => ({ playlistId: playlist.id, youtubeVideoId: i.video.youtubeVideoId!, title: i.video.title, thumbnailUrl: i.video.thumbnailUrl }));
+    if (rows.length) await tx.playlistExclusion.createMany({ data: rows, skipDuplicates: true });
+  }
+  await tx.playlistVideo.deleteMany({ where: { id: { in: items.map((i) => i.id) } } });
+  let deletedVideos = 0;
+  if (pruneOrphans) {
+    const orphans = await tx.video.findMany({
+      where: {
+        userId,
+        id: { in: items.map((i) => i.videoId) },
+        playlistItems: { none: {} },
+        placements: { none: {} },
+        favorites: { none: {} },
+        progress: { none: { status: { not: 'NOT_STARTED' } } },
+        notes: { none: { content: { not: '' } } },
+      },
+      select: { id: true },
+    });
+    deletedVideos = (await tx.video.deleteMany({ where: { id: { in: orphans.map((o) => o.id) } } })).count;
+  }
+  return { removed: items.length, deletedVideos };
+}

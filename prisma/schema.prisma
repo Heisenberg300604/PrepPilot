@@ -167,6 +167,7 @@ model Playlist {
 
   user       UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
   items      PlaylistVideo[]
+  exclusions PlaylistExclusion[]
   placements PlaylistPlacement[]
   tasks      StudyTask[]
   activity   StudyActivity[]
@@ -218,6 +219,22 @@ model PlaylistVideo {
   @@unique([playlistId, videoId])
   @@index([playlistId, position])
   @@index([videoId])
+}
+
+/// A YouTube video the user chose NOT to keep in an imported playlist. Sync consults this so removed
+/// videos are never silently re-added; deleting the row (restore) lets the next sync bring it back.
+model PlaylistExclusion {
+  id             String   @id @default(cuid())
+  playlistId     String
+  youtubeVideoId String
+  /// Snapshot so the "Removed videos" list can show something meaningful without refetching.
+  title          String
+  thumbnailUrl   String?
+  createdAt      DateTime @default(now())
+
+  playlist Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+
+  @@unique([playlistId, youtubeVideoId])
 }
 
 /// Where a playlist appears in the hierarchy. folderId null = attached directly to the subject.

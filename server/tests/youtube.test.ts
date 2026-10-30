@@ -292,3 +292,124 @@ describe('playlist metadata cache', () => {
     expect(h.youtube.calls.playlist).toBe(2);
   });
 });
+
+describe('choosing which videos to keep from a playlist', () => {
+  const PLS = 'PLselect00001';
+  const urlS = `https://www.youtube.com/playlist?list=${PLS}`;
+  const seed = async () => {
+    const h = makeHarness();
+    const a = h.as(h.newUser());
+    const { subject, main } = await seedWorkspace(a);
+    h.youtube.playlists.set(PLS, ytPlaylist(PLS, [1, 2, 3, 4, 5].map((n) => ytVideo(n))));
+    return { h, a, subject, main };
+  };
+  const idOf = (n: number) => ytVideo(n).youtubeVideoId;
+
+  it('imports only the selected videos, keeping their order', async () => {
+    const { a, subject } = await seed();
+    const imp = await a.post('/api/playlists/import', { url: urlS, subjectId: subject.id, selectedVideoIds: [idOf(5), idOf(1), idOf(3)] });
+    expect(imp.status).toBe(201);
+    expect(imp.body.data).toMatchObject({ createdVideos: 3, skippedVideos: 2 });
+    const d = (await a.get(`/api/playlists/${imp.body.data.playlist.id}`)).body.data;
+    expect(d.videos.map((v: any) => v.title)).toEqual(['Lecture 1', 'Lecture 3', 'Lecture 5']); // original playlist order, not selection order
+    expect(d.stats.total).toBe(3);
+    expect(d.excludedVideos.map((e: any) => e.title).sort()).toEqual(['Lecture 2', 'Lecture 4']);
+    expect((await a.get('/api/videos')).body.data.total).toBe(3); // skipped videos never become library records
+  });
+
+  it('rejects an empty selection and ignores ids that are not in the playlist', async () => {
+    const { a, subject } = await seed();
+    const none = await a.post('/api/playlists/import', { url: urlS, subjectId: subject.id, selectedVideoIds: [] });
+    expect(none.status).toBe(422);
+    expect(none.body.error.code).toBe('NOTHING_SELECTED');
+    const bogus = await a.post('/api/playlists/import', { url: urlS, subjectId: subject.id, selectedVideoIds: ['notInPlaylist'] });
+    expect(bogus.status).toBe(422);
+    expect((await a.get('/api/playlists')).body.data).toHaveLength(0); // nothing written
+    const mixed = await a.post('/api/playlists/import', { url: urlS, subjectId: subject.id, selectedVideoIds: [idOf(2), 'notInPlaylist'] });
+    expect(mixed.body.data).toMatchObject({ createdVideos: 1, skippedVideos: 4 });
+  });
+
+  it('sync never brings removed videos back, but picks up genuinely new ones', async () => {
+    const { h, a, subject } = await seed();
+    const imp = await a.post('/api/playlists/import', { url: urlS, subjectId: subject.id, selectedVideoIds: [idOf(1), idOf(2)] });
+    const pid = imp.body.data.playlist.id;
+    h.youtube.playlists.set(PLS, ytPlaylist(PLS, [1, 2, 3, 4, 5, 6].map((n) => ytVideo(n)))); // YouTube adds lecture 6
+    const s = await a.post(`/api/playlists/${pid}/sync`);
+    expect(s.body.data).toMatchObject({ newVideos: 1, addedItems: 1 });
+    const titles = (await a.get(`/api/playlists/${pid}`)).body.data.videos.map((v: any) => v.title);
+    expect(titles).toEqual(['Lecture 1', 'Lecture 2', 'Lecture 6']);
+  });
+
+  it('removes videos from an imported playlist: remembers them, keeps progress where it matters, prunes untouched ones', async () => {
+    const { a, subject, main } = await seed();
+    const pid = (await a.post('/api/playlists/import', { url: urlS, subjectId: subject.id, folderId: main.id })).body.data.playlist.id;
+    const vids = (await a.get(`/api/playlists/${pid}`)).body.data.videos;
+    await a.put(`/api/videos/${vids[0].id}/progress`, { status: 'COMPLETED' }); // has progress -> must survive
+    await a.put(`/api/videos/${vids[1].id}/favorite`, { favorite: true }); // favourite -> must survive
+    const rm = await a.post(`/api/playlists/${pid}/videos/remove`, { videoIds: [vids[0].id, vids[1].id, vids[2].id] });
+    expect(rm.status).toBe(200);
+    expect(rm.body.data).toMatchObject({ removed: 3, deletedVideos: 1, restorable: true }); // only the untouched one is deleted
+    const d = (await a.get(`/api/playlists/${pid}`)).body.data;
+    expect(d.videos.map((v: any) => v.title)).toEqual(['Lecture 4', 'Lecture 5']);
+    expect(d.stats.total).toBe(2);
+    expect(d.excludedVideos).toHaveLength(3);
+    expect((await a.get(`/api/videos/${vids[0].id}`)).body.data.status).toBe('COMPLETED'); // history kept
+    expect((await a.get(`/api/videos/${vids[2].id}`)).status).toBe(404);
+    // removing something that isn't in the playlist is a harmless no-op
+    expect((await a.post(`/api/playlists/${pid}/videos/remove`, { videoIds: [vids[0].id] })).body.data.removed).toBe(0);
+    expect((await a.post(`/api/playlists/${pid}/videos/remove`, { videoIds: [] })).status).toBe(400);
+    // a normal sync leaves the removed ones removed
+    await a.post(`/api/playlists/${pid}/sync`);
+    expect((await a.get(`/api/playlists/${pid}`)).body.data.videos).toHaveLength(2);
+  });
+
+  it('restores removed videos through sync, with their old progress intact', async () => {
+    const { a, subject } = await seed();
+    const pid = (await a.post('/api/playlists/import', { url: urlS, subjectId: subject.id })).body.data.playlist.id;
+    const first = (await a.get(`/api/playlists/${pid}`)).body.data.videos[0];
+    await a.put(`/api/videos/${first.id}/progress`, { status: 'COMPLETED' });
+    await a.post(`/api/playlists/${pid}/videos/remove`, { videoIds: [first.id] });
+    expect((await a.get(`/api/playlists/${pid}`)).body.data.stats).toMatchObject({ total: 4, completed: 0 });
+    const res = await a.post(`/api/playlists/${pid}/sync`, { restore: [idOf(1)] });
+    expect(res.body.data.addedItems).toBe(1);
+    const d = (await a.get(`/api/playlists/${pid}`)).body.data;
+    expect(d.excludedVideos).toHaveLength(0);
+    expect(d.videos[0]).toMatchObject({ id: first.id, status: 'COMPLETED', position: 0 }); // same record, original place
+    expect(d.stats).toMatchObject({ total: 5, completed: 1 });
+  });
+
+  it('re-importing with a different selection adds and removes accordingly, and defaults restore everything', async () => {
+    const { a, subject } = await seed();
+    const pid = (await a.post('/api/playlists/import', { url: urlS, subjectId: subject.id, selectedVideoIds: [idOf(1), idOf(2)] })).body.data.playlist.id;
+    const preview = await a.post('/api/playlists/preview', { url: urlS });
+    expect(preview.body.data.excludedVideoIds.sort()).toEqual([idOf(3), idOf(4), idOf(5)].sort());
+    const re = await a.post('/api/playlists/import', { url: urlS, subjectId: subject.id, selectedVideoIds: [idOf(2), idOf(3)] });
+    expect(re.body.data.playlist.id).toBe(pid);
+    expect((await a.get(`/api/playlists/${pid}`)).body.data.videos.map((v: any) => v.title)).toEqual(['Lecture 2', 'Lecture 3']);
+    await a.post('/api/playlists/import', { url: urlS, subjectId: subject.id }); // no selection = everything
+    const d = (await a.get(`/api/playlists/${pid}`)).body.data;
+    expect(d.videos).toHaveLength(5);
+    expect(d.excludedVideos).toHaveLength(0);
+  });
+
+  it('local collections: removal just drops membership and keeps the video in the library', async () => {
+    const { a, subject } = await seed();
+    const pl = (await a.post('/api/playlists', { title: 'Mine', subjectId: subject.id })).body.data;
+    const v = (await a.post('/api/videos', { url: 'https://youtu.be/dQw4w9WgXcQ', title: 'One', playlistId: pl.id })).body.data;
+    const rm = await a.post(`/api/playlists/${pl.id}/videos/remove`, { videoIds: [v.id] });
+    expect(rm.body.data).toMatchObject({ removed: 1, deletedVideos: 0, restorable: false });
+    expect((await a.get(`/api/videos/${v.id}`)).status).toBe(200);
+    expect((await a.get(`/api/playlists/${pl.id}`)).body.data.excludedVideos).toEqual([]);
+  });
+
+  it("another user cannot remove or restore on someone else's playlist", async () => {
+    const { h, a, subject } = await seed();
+    const pid = (await a.post('/api/playlists/import', { url: urlS, subjectId: subject.id })).body.data.playlist.id;
+    const vids = (await a.get(`/api/playlists/${pid}`)).body.data.videos;
+    const b = h.as(h.newUser());
+    expect((await b.post(`/api/playlists/${pid}/videos/remove`, { videoIds: [vids[0].id] })).status).toBe(404);
+    expect((await b.post(`/api/playlists/${pid}/sync`, { restore: [idOf(1)] })).status).toBe(404);
+    expect((await b.delete(`/api/playlists/${pid}/videos/${vids[0].id}`)).status).toBe(404);
+    expect((await a.get(`/api/playlists/${pid}`)).body.data.videos).toHaveLength(5);
+  });
+});

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '@/lib/api';
 import type { Video } from '@/lib/types';
-import { filterSortVideos, importErrorMessage, nextUnwatched, watchUrl } from './helpers';
+import { allSelected, filterSortVideos, importErrorMessage, importLabel, initialSelection, nextUnwatched, setRange, toggleId, watchUrl } from './helpers';
 
 const v = (n: number, o: Partial<Video> = {}): Video => ({
   id: `v${n}`, youtubeVideoId: null, title: `T${n}`, description: null, thumbnailUrl: null, sourceUrl: null, channelTitle: null, durationSeconds: n * 10,
@@ -42,5 +42,35 @@ describe('nextUnwatched', () => {
   it('builds watch urls', () => {
     expect(watchUrl('a', 'p')).toBe('/watch/a?playlist=p');
     expect(watchUrl('a')).toBe('/watch/a');
+  });
+});
+
+describe('choosing videos to import', () => {
+  const vids = ['a', 'b', 'c', 'd', 'e'].map((youtubeVideoId) => ({ youtubeVideoId }));
+  it('starts with everything selected except previously removed videos', () => {
+    expect([...initialSelection(vids)].sort()).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect([...initialSelection(vids, ['b', 'd', 'zzz'])].sort()).toEqual(['a', 'c', 'e']);
+  });
+  it('toggles without mutating the original set', () => {
+    const s = new Set(['a']);
+    const on = toggleId(s, 'b');
+    expect([...on].sort()).toEqual(['a', 'b']);
+    expect([...s]).toEqual(['a']);
+    expect(toggleId(on, 'a').has('a')).toBe(false);
+  });
+  it('selects or clears a range in either direction (shift-click)', () => {
+    const ids = vids.map((v) => v.youtubeVideoId);
+    expect([...setRange(new Set(), ids, 1, 3, true)]).toEqual(['b', 'c', 'd']);
+    expect([...setRange(new Set(), ids, 3, 1, true)]).toEqual(['b', 'c', 'd']); // direction doesn't matter
+    expect([...setRange(new Set(ids), ids, 0, 2, false)].sort()).toEqual(['d', 'e']);
+    expect(setRange(new Set(), ids, -4, 99, true).size).toBe(5); // out-of-range is clamped, never throws
+  });
+  it('labels the import button honestly', () => {
+    expect(importLabel(0, 5)).toBe('Select videos to import');
+    expect(importLabel(5, 5)).toBe('Import 5 videos');
+    expect(importLabel(1, 1)).toBe('Import 1 video');
+    expect(importLabel(2, 5)).toBe('Import 2 of 5 videos');
+    expect(allSelected(new Set(['a']), 1)).toBe(true);
+    expect(allSelected(new Set(), 0)).toBe(false);
   });
 });

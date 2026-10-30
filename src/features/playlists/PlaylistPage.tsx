@@ -1,18 +1,17 @@
-import { ArrowRightLeft, ExternalLink, FolderPlus, ListVideo, MinusCircle, MoreHorizontal, Pencil, Play, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { ArrowRightLeft, CheckSquare, ExternalLink, FolderPlus, ListVideo, MinusCircle, MoreHorizontal, Pencil, Play, Plus, RefreshCw, RotateCcw, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Breadcrumbs, Button, Checkbox, ConfirmDialog, Dialog, EmptyState, ErrorState, Menu, PageLoading, Progress, Segmented, TextArea, TextField, Thumb } from '@/components/ui';
 import { MoveDialog } from '@/features/common/MoveDialog';
 import { useAddPlacement, useMovePlacement, useRemovePlacement } from '@/features/subjects/queries';
 import { VideoRow } from '@/features/videos/VideoRow';
-import { useRemoveVideoFromPlaylist } from './queries';
 import { useDialogs } from '@/lib/dialogs';
 import { formatDate, locationText, plural } from '@/lib/format';
 import { useDocumentTitle, useMeta } from '@/lib/hooks';
 import { toast } from '@/lib/toast';
 import type { PlaylistDetail, Placement } from '@/lib/types';
 import { filterSortVideos, nextUnwatched, watchUrl, type VideoFilter, type VideoSort } from './helpers';
-import { useDeletePlaylist, usePlaylist, useSyncPlaylist, useUpdatePlaylist } from './queries';
+import { useDeletePlaylist, usePlaylist, useRemovePlaylistVideos, useRestorePlaylistVideos, useSyncPlaylist, useUpdatePlaylist } from './queries';
 import './playlists.css';
 
 const placementLink = (p: Placement) => `/subjects/${p.subjectId}${p.folderId ? `?folder=${p.folderId}` : ''}`;
@@ -84,10 +83,13 @@ export default function PlaylistPage() {
   const move = useMovePlacement();
   const addPlacement = useAddPlacement();
   const removePlacement = useRemovePlacement();
-  const removeFromCollection = useRemoveVideoFromPlaylist();
+  const removeVideos = useRemovePlaylistVideos();
+  const restoreVideos = useRestorePlaylistVideos();
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<VideoFilter>('ALL');
   const [sort, setSort] = useState<VideoSort>('ORDER');
-  const [modal, setModal] = useState<null | { kind: 'edit' } | { kind: 'delete' } | { kind: 'add' } | { kind: 'move'; p: Placement } | { kind: 'remove'; p: Placement }>(null);
+  const [modal, setModal] = useState<null | { kind: 'edit' } | { kind: 'delete' } | { kind: 'add' } | { kind: 'move'; p: Placement } | { kind: 'remove'; p: Placement } | { kind: 'removeVideos'; ids: string[] }>(null);
   const pl = q.data;
   useDocumentTitle(pl?.title);
 
@@ -120,6 +122,34 @@ export default function PlaylistPage() {
         toast.success(`Synchronised — ${bits.join(', ')}. Your progress was not changed.`);
       },
     });
+
+  const stopSelecting = () => {
+    setSelecting(false);
+    setPicked(new Set());
+  };
+  const togglePick = (id: string) =>
+    setPicked((cur) => {
+      const n = new Set(cur);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+
+  /** Restore removed videos by re-syncing; offered as an Undo right after a removal. */
+  const restore = (youtubeVideoIds: string[]) =>
+    restoreVideos.mutate(
+      { playlistId: pl.id, youtubeVideoIds },
+      { onSuccess: (r) => toast.success(`Restored ${plural(r.addedItems, 'video')} to this playlist.`) },
+    );
+  const removeNow = (ids: string[], then?: () => void) => {
+    const ytIds = pl.videos.filter((v) => ids.includes(v.id) && v.youtubeVideoId).map((v) => v.youtubeVideoId!);
+    return removeVideos.mutateAsync({ playlistId: pl.id, videoIds: ids }).then((r) => {
+      then?.();
+      const msg = pl.isLocal
+        ? `Removed ${plural(r.removed, 'video')} from this collection. They stay in your library.`
+        : `Removed ${plural(r.removed, 'video')} from this playlist. Sync will not add ${r.removed === 1 ? 'it' : 'them'} back.`;
+      toast.success(msg, r.restorable && !noKey ? { label: 'Undo', onClick: () => restore(ytIds) } : undefined);
+    });
+  };
 
   return (
     <div>
@@ -205,6 +235,9 @@ export default function PlaylistPage() {
             { value: 'COMPLETED', label: 'Completed', count: counts.COMPLETED },
           ]}
         />
+        <Button size="sm" variant={selecting ? 'primary' : 'secondary'} icon={selecting ? <X size={15} /> : <CheckSquare size={15} />} onClick={() => (selecting ? stopSelecting() : setSelecting(true))} aria-pressed={selecting}>
+          {selecting ? 'Done' : 'Select videos'}
+        </Button>
         <label className="sort-select">
           Sort by
           <select className="input select" value={sort} onChange={(e) => setSort(e.target.value as VideoSort)}>
@@ -218,25 +251,101 @@ export default function PlaylistPage() {
 
       {pl.videos.length === 0 ? (
         <EmptyState icon={ListVideo} title="No videos yet" action={pl.isLocal ? <Button variant="primary" icon={<Plus size={16} />} onClick={() => dialogs.open({ kind: 'video', playlistId: pl.id })}>Add a video</Button> : undefined}>
-          {pl.isLocal ? 'Add videos to build this collection.' : 'This playlist had no videos when it was last synced.'}
+          {pl.isLocal ? 'Add videos to build this collection.' : pl.excludedVideos.length > 0 ? 'You removed every video from this playlist. Restore any of them from “Removed videos” below.' : 'This playlist had no videos when it was last synced.'}
         </EmptyState>
       ) : shown.length === 0 ? (
         <EmptyState icon={ListVideo} title="Nothing matches this filter" action={<Button onClick={() => setFilter('ALL')}>Show all videos</Button>} />
       ) : (
-        <div role="list" aria-label="Videos">
-          {shown.map((v) => (
-            <div role="listitem" key={v.id}>
-              <VideoRow
-                video={v}
-                playlistId={pl.id}
-                index={sort === 'ORDER' && filter === 'ALL' ? (v.position ?? 0) + 1 : undefined}
-                extraMenu={pl.isLocal ? [{ label: 'Remove from collection', icon: <MinusCircle size={16} />, danger: true, onSelect: () => removeFromCollection.mutate({ playlistId: pl.id, videoId: v.id }, { onSuccess: () => toast.success('Removed from this collection. The video stays in your library.') }) }] : []}
-              />
+        <>
+          {selecting && (
+            <div className="select-bar" role="region" aria-label="Bulk actions">
+              <span role="status" aria-live="polite">
+                <strong>{picked.size}</strong> selected
+              </span>
+              <span className="row row-wrap">
+                <Button size="sm" variant="ghost" onClick={() => setPicked(new Set(shown.map((v) => v.id)))} disabled={shown.length === 0 || picked.size === shown.length}>
+                  Select all {filter === 'ALL' ? '' : 'shown'}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setPicked(new Set())} disabled={picked.size === 0}>
+                  Clear
+                </Button>
+                <Button size="sm" variant="danger" icon={<Trash2 size={15} />} disabled={picked.size === 0} onClick={() => setModal({ kind: 'removeVideos', ids: [...picked] })}>
+                  Remove from {pl.isLocal ? 'collection' : 'playlist'}
+                </Button>
+              </span>
             </div>
-          ))}
-        </div>
+          )}
+          <div role="list" aria-label="Videos">
+            {shown.map((v) => (
+              <div role="listitem" key={v.id} className={`sel-row ${selecting ? 'is-selecting' : ''} ${picked.has(v.id) ? 'is-picked' : ''}`}>
+                {selecting && <input type="checkbox" className="sel-check" checked={picked.has(v.id)} onChange={() => togglePick(v.id)} aria-label={`Select ${v.title}`} />}
+                <VideoRow
+                  video={v}
+                  playlistId={pl.id}
+                  index={sort === 'ORDER' && filter === 'ALL' ? (v.position ?? 0) + 1 : undefined}
+                  extraMenu={[
+                    {
+                      label: pl.isLocal ? 'Remove from collection' : 'Remove from this playlist',
+                      icon: <MinusCircle size={16} />,
+                      danger: true,
+                      onSelect: () => (v.status === 'NOT_STARTED' && !v.favorite ? removeNow([v.id]) : setModal({ kind: 'removeVideos', ids: [v.id] })),
+                    },
+                  ]}
+                />
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
+      {!pl.isLocal && pl.excludedVideos.length > 0 && (
+        <details className="removed-panel">
+          <summary>
+            <RotateCcw size={15} aria-hidden /> Removed videos <span className="seg-count">{pl.excludedVideos.length}</span>
+          </summary>
+          <p className="muted small">These are left out of this playlist and will not come back when you sync. Restore any you want to bring back{noKey ? ' (needs a YouTube API key on the server)' : ''}.</p>
+          <ul>
+            {pl.excludedVideos.map((e) => (
+              <li key={e.youtubeVideoId}>
+                <Thumb src={e.thumbnailUrl} />
+                <span className="truncate" title={e.title}>{e.title}</span>
+                <Button size="sm" onClick={() => restore([e.youtubeVideoId])} disabled={noKey || restoreVideos.isPending} aria-label={`Restore ${e.title}`}>
+                  Restore
+                </Button>
+              </li>
+            ))}
+          </ul>
+          {pl.excludedVideos.length > 1 && (
+            <Button size="sm" variant="ghost" onClick={() => restore(pl.excludedVideos.map((e) => e.youtubeVideoId))} disabled={noKey || restoreVideos.isPending}>
+              Restore all
+            </Button>
+          )}
+        </details>
+      )}
+
+      {modal?.kind === 'removeVideos' && (
+        <ConfirmDialog
+          title={`Remove ${plural(modal.ids.length, 'video')} from this ${pl.isLocal ? 'collection' : 'playlist'}?`}
+          confirmLabel="Remove"
+          danger
+          onClose={() => setModal(null)}
+          onConfirm={() => removeNow(modal.ids, stopSelecting)}
+        >
+          {(() => {
+            const chosen = pl.videos.filter((v) => modal.ids.includes(v.id));
+            const withHistory = chosen.filter((v) => v.status !== 'NOT_STARTED' || v.favorite).length;
+            return (
+              <>
+                <p>
+                  {pl.isLocal ? 'They will no longer be in this collection, but stay in your library.' : 'They will no longer appear in this playlist, and syncing from YouTube will not add them back. You can restore them later from “Removed videos”.'}
+                </p>
+                {withHistory > 0 && <p>{plural(withHistory, 'of these videos has', 'of these videos have')} progress or a favourite. {pl.isLocal ? '' : 'That history is kept, and returns if you restore the video.'}</p>}
+                <p>This only changes PrepPilot. Nothing is changed on YouTube.</p>
+              </>
+            );
+          })()}
+        </ConfirmDialog>
+      )}
       {modal?.kind === 'edit' && <EditDialog playlist={pl} onClose={() => setModal(null)} />}
       {modal?.kind === 'delete' && <DeleteDialog playlist={pl} onClose={() => setModal(null)} onDeleted={() => nav('/library')} />}
       {modal?.kind === 'add' && (

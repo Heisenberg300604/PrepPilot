@@ -6,7 +6,7 @@ import { idParam, ok, optionalText, requiredText } from '../http.js';
 import { own, resolveDestination } from '../services/ownership.js';
 import { buildIndex } from '../services/stats.js';
 import { serializePlaylist, serializeVideo, videoInclude } from '../services/serializers.js';
-import { fetchPlaylist, labelLocations, PlaylistCache, syncPlaylistItems, upsertPlaylistRecord, upsertYoutubeVideos } from '../services/library.js';
+import { fetchPlaylist, labelLocations, PlaylistCache, removePlaylistItems, syncPlaylistItems, upsertPlaylistRecord, upsertYoutubeVideos } from '../services/library.js';
 import { recordActivity } from '../services/activity.js';
 import { parsePlaylistUrl } from '../youtube/parse.js';
 import type { YouTubeApi } from '../youtube/client.js';
@@ -31,7 +31,7 @@ export function playlistsRouter(db: Db, yt: YouTubeApi, expensive: import('expre
     if (!c.videos.length) throw new AppError(422, 'EMPTY_PLAYLIST', 'This playlist has no videos to import.');
     const userId = req.user.id;
     const [existingPlaylist, existingVideos] = await Promise.all([
-      db.playlist.findFirst({ where: { userId, youtubePlaylistId: ytId }, select: { id: true } }),
+      db.playlist.findFirst({ where: { userId, youtubePlaylistId: ytId }, select: { id: true, exclusions: { select: { youtubeVideoId: true } } } }),
       db.video.count({ where: { userId, youtubeVideoId: { in: c.videos.map((v) => v.youtubeVideoId) } } }),
     ]);
     ok(res, {
@@ -41,26 +41,48 @@ export function playlistsRouter(db: Db, yt: YouTubeApi, expensive: import('expre
       unavailableCount: c.videos.filter((v) => v.availability !== 'AVAILABLE').length,
       alreadyImportedPlaylistId: existingPlaylist?.id ?? null,
       alreadyKnownVideoCount: existingVideos,
+      /** Videos the user previously removed from this playlist; the UI pre-unchecks them. */
+      excludedVideoIds: existingPlaylist?.exclusions.map((e) => e.youtubeVideoId) ?? [],
       videos: c.videos.map((v) => ({ youtubeVideoId: v.youtubeVideoId, title: v.title, thumbnailUrl: v.thumbnailUrl, durationSeconds: v.durationSeconds, availability: v.availability, position: v.position })),
     });
   });
 
   r.post('/import', ...expensive, async (req, res) => {
-    const body = z.object({ url: z.string().min(1).max(2048) }).and(dest).parse(req.body);
+    const body = z.object({ url: z.string().min(1).max(2048), selectedVideoIds: z.array(z.string().max(32)).max(1000).optional() }).and(dest).parse(req.body);
     const ytId = playlistIdFromUrl(body.url);
     const userId = req.user.id;
     const loc = await resolveDestination(db, userId, body.subjectId, body.folderId);
     const c = await fetchPlaylist(yt, cache, ytId);
     if (!c.videos.length) throw new AppError(422, 'EMPTY_PLAYLIST', 'This playlist has no videos to import.');
+    // No selection = everything. An explicit selection imports only those videos; the rest are remembered as
+    // exclusions so later syncs don't add them back. (Selection is matched against what YouTube returned,
+    // never trusted as data.)
+    const pick = body.selectedVideoIds ? new Set(body.selectedVideoIds) : null;
+    const chosen = pick ? c.videos.filter((v) => pick.has(v.youtubeVideoId)) : c.videos;
+    if (!chosen.length) throw new AppError(422, 'NOTHING_SELECTED', 'Select at least one video to import.');
+    const skipped = c.videos.filter((v) => !chosen.includes(v));
     const result = await db.$transaction(
       async (tx) => {
         const playlist = await upsertPlaylistRecord(tx, userId, c);
-        const { map, created } = await upsertYoutubeVideos(tx, userId, c.videos);
-        const sync = await syncPlaylistItems(tx, playlist.id, c.videos, map);
+        // an explicit choice replaces earlier exclusions for the videos on this page of YouTube results
+        await tx.playlistExclusion.deleteMany({ where: { playlistId: playlist.id, youtubeVideoId: { in: chosen.map((v) => v.youtubeVideoId) } } });
+        const { map, created } = await upsertYoutubeVideos(tx, userId, chosen);
+        const sync = await syncPlaylistItems(tx, playlist.id, chosen, map);
+        let removedNow = 0;
+        if (skipped.length) {
+          // previously imported but now deselected -> remove them (and remember), same as a manual removal
+          const known = await tx.video.findMany({ where: { userId, youtubeVideoId: { in: skipped.map((v) => v.youtubeVideoId) } }, select: { id: true } });
+          const gone = await removePlaylistItems(tx, userId, playlist, known.map((k) => k.id), true);
+          removedNow = gone.removed;
+          await tx.playlistExclusion.createMany({
+            data: skipped.map((v) => ({ playlistId: playlist.id, youtubeVideoId: v.youtubeVideoId, title: v.title, thumbnailUrl: v.thumbnailUrl })),
+            skipDuplicates: true,
+          });
+        }
         const placed = await tx.playlistPlacement.findFirst({ where: { userId, playlistId: playlist.id, subjectId: loc.subjectId, folderId: loc.folderId } });
         if (!placed) await tx.playlistPlacement.create({ data: { userId, playlistId: playlist.id, ...loc } });
-        await recordActivity(tx, userId, 'PLAYLIST_IMPORTED', { playlistId: playlist.id, subjectId: loc.subjectId, examId: loc.examId, folderId: loc.folderId ?? undefined, metadata: { videos: c.videos.length } });
-        return { playlist, createdVideos: created, reusedVideos: c.videos.length - created, addedItems: sync.added, alreadyPlaced: Boolean(placed) };
+        await recordActivity(tx, userId, 'PLAYLIST_IMPORTED', { playlistId: playlist.id, subjectId: loc.subjectId, examId: loc.examId, folderId: loc.folderId ?? undefined, metadata: { videos: chosen.length, skipped: skipped.length } });
+        return { playlist, createdVideos: created, reusedVideos: chosen.length - created, addedItems: sync.added, alreadyPlaced: Boolean(placed), skippedVideos: skipped.length, removedFromPlaylist: removedNow };
       },
       { timeout: 60_000, maxWait: 10_000 },
     );
@@ -102,7 +124,11 @@ export function playlistsRouter(db: Db, yt: YouTubeApi, expensive: import('expre
     const [playlist, idx] = await Promise.all([
       db.playlist.findFirstOrThrow({
         where: { id, userId },
-        include: { placements: { orderBy: { createdAt: 'asc' } }, items: { orderBy: { position: 'asc' }, include: { video: { include: videoInclude } } } },
+        include: {
+          placements: { orderBy: { createdAt: 'asc' } },
+          items: { orderBy: { position: 'asc' }, include: { video: { include: videoInclude } } },
+          exclusions: { orderBy: { createdAt: 'desc' } },
+        },
       }),
       buildIndex(db, userId),
     ]);
@@ -112,6 +138,8 @@ export function playlistsRouter(db: Db, yt: YouTubeApi, expensive: import('expre
       isLocal: !playlist.youtubePlaylistId,
       placements: playlist.placements.map((p, i) => ({ id: p.id, ...labels[i] })),
       videos: playlist.items.map((it) => serializeVideo(it.video, { position: it.position, removedFromSource: it.removedFromSource })),
+      /** Videos the user removed from this playlist (sync will not re-add them until restored). */
+      excludedVideos: playlist.exclusions.map((e) => ({ youtubeVideoId: e.youtubeVideoId, title: e.title, thumbnailUrl: e.thumbnailUrl, removedAt: e.createdAt })),
     });
   });
 
@@ -127,9 +155,13 @@ export function playlistsRouter(db: Db, yt: YouTubeApi, expensive: import('expre
     ok(res, serializePlaylist(p, await buildIndex(db, req.user.id)));
   });
 
-  /** Safe to retry: progress, notes, favorites and video identities are preserved; vanished items are flagged, not deleted. */
+  /**
+   * Safe to retry: progress, notes, favorites and video identities are preserved; vanished items are flagged, not deleted.
+   * Videos the user removed (exclusions) are skipped. Pass `restore` (YouTube video ids) to un-remove some first.
+   */
   r.post('/:id/sync', ...expensive, async (req, res) => {
     const { id } = idParam.parse(req.params);
+    const { restore = [] } = z.object({ restore: z.array(z.string().max(32)).max(1000).optional() }).parse(req.body ?? {});
     const userId = req.user.id;
     const existing = await own.playlist(db, userId, id);
     if (!existing.youtubePlaylistId) throw unprocessable('This is a local collection, so there is nothing to synchronise with YouTube.');
@@ -137,14 +169,27 @@ export function playlistsRouter(db: Db, yt: YouTubeApi, expensive: import('expre
     const result = await db.$transaction(
       async (tx) => {
         const playlist = await upsertPlaylistRecord(tx, userId, c);
-        const { map, created } = await upsertYoutubeVideos(tx, userId, c.videos);
-        const sync = await syncPlaylistItems(tx, playlist.id, c.videos, map);
-        await recordActivity(tx, userId, 'PLAYLIST_SYNCED', { playlistId: playlist.id, metadata: { added: sync.added, removed: sync.removed } });
-        return { playlist, newVideos: created, addedItems: sync.added, removedFromSource: sync.removed };
+        if (restore.length) await tx.playlistExclusion.deleteMany({ where: { playlistId: id, youtubeVideoId: { in: restore } } });
+        const excluded = new Set((await tx.playlistExclusion.findMany({ where: { playlistId: id }, select: { youtubeVideoId: true } })).map((e) => e.youtubeVideoId));
+        const videos = c.videos.filter((v) => !excluded.has(v.youtubeVideoId));
+        const { map, created } = await upsertYoutubeVideos(tx, userId, videos);
+        const sync = await syncPlaylistItems(tx, playlist.id, videos, map);
+        await recordActivity(tx, userId, 'PLAYLIST_SYNCED', { playlistId: playlist.id, metadata: { added: sync.added, removed: sync.removed, restored: restore.length } });
+        return { playlist, newVideos: created, addedItems: sync.added, removedFromSource: sync.removed, skippedExcluded: excluded.size };
       },
       { timeout: 60_000, maxWait: 10_000 },
     );
     ok(res, { ...result, playlist: serializePlaylist(result.playlist, await buildIndex(db, userId)), truncated: c.truncated });
+  });
+
+  /** Remove selected videos from this playlist. Imported playlists remember the removal (restorable). */
+  r.post('/:id/videos/remove', async (req, res) => {
+    const { id } = idParam.parse(req.params);
+    const { videoIds } = z.object({ videoIds: z.array(z.string().max(64)).min(1).max(1000) }).parse(req.body);
+    const userId = req.user.id;
+    const playlist = await own.playlist(db, userId, id);
+    const result = await db.$transaction((tx) => removePlaylistItems(tx, userId, playlist, videoIds, Boolean(playlist.youtubePlaylistId)));
+    ok(res, { ...result, restorable: Boolean(playlist.youtubePlaylistId) });
   });
 
   // Local collections only: imported playlists mirror their YouTube source.
@@ -163,9 +208,9 @@ export function playlistsRouter(db: Db, yt: YouTubeApi, expensive: import('expre
   r.delete('/:id/videos/:videoId', async (req, res) => {
     const { id, videoId } = z.object({ id: z.string(), videoId: z.string() }).parse(req.params);
     const userId = req.user.id;
-    await own.playlist(db, userId, id);
-    await db.playlistVideo.deleteMany({ where: { playlistId: id, videoId } });
-    ok(res, { deleted: true });
+    const playlist = await own.playlist(db, userId, id);
+    const result = await db.$transaction((tx) => removePlaylistItems(tx, userId, playlist, [videoId], Boolean(playlist.youtubePlaylistId)));
+    ok(res, { deleted: true, ...result });
   });
 
   // Deletes the playlist and its placements. Videos (and their progress/notes) stay in the library

@@ -52,3 +52,29 @@ export function nextUnwatched(videos: Video[]): Video | undefined {
 }
 
 export const watchUrl = (videoId: string, playlistId?: string | null) => `/watch/${videoId}${playlistId ? `?playlist=${playlistId}` : ''}`;
+
+// ── choosing which videos to import ──────────────────────────────────────────
+/** Everything is selected, except videos the user previously removed from this playlist. */
+export function initialSelection(videos: { youtubeVideoId: string }[], excludedIds: string[] = []): Set<string> {
+  const excluded = new Set(excludedIds);
+  return new Set(videos.filter((v) => !excluded.has(v.youtubeVideoId)).map((v) => v.youtubeVideoId));
+}
+export function toggleId(selected: Set<string>, id: string): Set<string> {
+  const next = new Set(selected);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  return next;
+}
+/** Select / deselect the contiguous run between two positions in the list (shift-click). */
+export function setRange(selected: Set<string>, orderedIds: string[], from: number, to: number, on: boolean): Set<string> {
+  const next = new Set(selected);
+  const [a, b] = from <= to ? [from, to] : [to, from];
+  for (const id of orderedIds.slice(Math.max(0, a), b + 1)) on ? next.add(id) : next.delete(id);
+  return next;
+}
+export const allSelected = (selected: Set<string>, total: number) => total > 0 && selected.size === total;
+/** Button label: "Import 12 videos" when everything is selected, otherwise "Import 7 of 12 videos". */
+export function importLabel(count: number, total: number): string {
+  if (count === 0) return 'Select videos to import';
+  return count === total ? `Import ${count} ${count === 1 ? 'video' : 'videos'}` : `Import ${count} of ${total} videos`;
+}

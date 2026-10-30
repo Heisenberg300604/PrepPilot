@@ -8,7 +8,7 @@ export const usePlaylist = (id?: string) => useQuery({ queryKey: keys.playlist(i
 
 /** Read-only: nothing is saved until the user confirms the import. */
 export const usePreviewPlaylist = () => useApiMutation<{ url: string }, PlaylistPreview>((body) => ({ path: '/playlists/preview', method: 'POST', body }), { invalidate: [], silentError: true });
-export const useImportPlaylist = () => useApiMutation<{ url: string } & Destination, ImportResult>((body) => ({ path: '/playlists/import', method: 'POST', body }), { silentError: true });
+export const useImportPlaylist = () => useApiMutation<{ url: string; selectedVideoIds?: string[] } & Destination, ImportResult>((body) => ({ path: '/playlists/import', method: 'POST', body }), { silentError: true });
 export const useSyncPlaylist = () => useApiMutation<string, SyncResult>((id) => ({ path: `/playlists/${id}/sync`, method: 'POST' }));
 export const useCreateLocalPlaylist = () =>
   useApiMutation<{ title: string; description?: string | null } & Destination, Playlist>((body) => ({ path: '/playlists', method: 'POST', body }));
@@ -22,3 +22,18 @@ export const useDeletePlaylist = () =>
   }));
 export const useAddVideoToPlaylist = () => useApiMutation<{ playlistId: string; videoId: string }>(({ playlistId, videoId }) => ({ path: `/playlists/${playlistId}/videos`, method: 'POST', body: { videoId } }));
 export const useRemoveVideoFromPlaylist = () => useApiMutation<{ playlistId: string; videoId: string }>(({ playlistId, videoId }) => ({ path: `/playlists/${playlistId}/videos/${videoId}`, method: 'DELETE' }));
+
+/** Remove videos from this playlist. Imported playlists remember it (restorable); local collections just drop membership. */
+export const useRemovePlaylistVideos = () =>
+  useApiMutation<{ playlistId: string; videoIds: string[] }, { removed: number; deletedVideos: number; restorable: boolean }>(({ playlistId, videoIds }) => ({
+    path: `/playlists/${playlistId}/videos/remove`,
+    method: 'POST',
+    body: { videoIds },
+  }));
+/** Bring removed videos back (re-syncs with YouTube, so progress on kept records is preserved). */
+export const useRestorePlaylistVideos = () =>
+  useApiMutation<{ playlistId: string; youtubeVideoIds: string[] }, SyncResult>(({ playlistId, youtubeVideoIds }) => ({
+    path: `/playlists/${playlistId}/sync`,
+    method: 'POST',
+    body: { restore: youtubeVideoIds },
+  }));

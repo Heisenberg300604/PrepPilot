@@ -124,8 +124,17 @@ export interface Placement extends Partial<LocationLabel> {
   id: string;
 }
 
+export interface ExcludedVideo {
+  youtubeVideoId: string;
+  title: string;
+  thumbnailUrl: string | null;
+  removedAt: string;
+}
+
 export interface PlaylistDetail extends Playlist {
   isLocal: boolean;
+  /** Videos removed from this playlist; sync will not re-add them until restored. */
+  excludedVideos: ExcludedVideo[];
   placements: Placement[];
   videos: Video[];
 }
@@ -162,6 +171,8 @@ export interface PlaylistPreview {
   unavailableCount: number;
   alreadyImportedPlaylistId: string | null;
   alreadyKnownVideoCount: number;
+  /** YouTube ids the user previously removed from this playlist (pre-unchecked in the picker). */
+  excludedVideoIds: string[];
   videos: { youtubeVideoId: string; title: string; thumbnailUrl: string | null; durationSeconds: number | null; availability: Availability; position: number }[];
 }
 
@@ -171,6 +182,8 @@ export interface ImportResult {
   reusedVideos: number;
   addedItems: number;
   alreadyPlaced: boolean;
+  skippedVideos: number;
+  removedFromPlaylist: number;
   truncated: boolean;
 }
 

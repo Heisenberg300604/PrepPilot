@@ -49,6 +49,9 @@ indexes for placements, non-negative CHECK constraints) live in the migration SQ
   to a missing one, so existence is never revealed.
 * **Deleting** an exam/subject/folder removes the *structure and placements* only. Videos, playlists, progress, notes
   and favourites are kept. Deleting a video/playlist that is still in use needs explicit confirmation.
+* **Choosing videos:** when importing a playlist you can untick videos you don't want, and you can remove videos from a playlist
+  later (one at a time or in bulk). Removals are remembered per playlist, so **sync never adds them back**; they're listed under
+  "Removed videos" with a Restore button. Your progress, notes and favourites on removed videos are kept.
 * **Sync** never deletes your data: removed YouTube items are flagged and parked at the end of the playlist; progress,
   notes, favourites and locally edited titles are preserved. Sync is safe to retry.
 * **Local edits** (titles/descriptions) only change PrepPilot — never YouTube.
@@ -68,6 +71,9 @@ cp .env.example .env            # then fill in the values below
 npx prisma migrate deploy       # applies committed migrations (use `npm run db:migrate` while developing schema changes)
 npm run dev                     # web on http://localhost:5173, API on http://localhost:4000
 ```
+
+> **After pulling changes that touch `prisma/`, run `npx prisma migrate deploy` before starting the API.** The code and the
+> database schema must match; otherwise requests that use a new table fail with a 500. Migrations are additive and safe to re-run.
 
 ### 1. Database (Prisma Postgres or any PostgreSQL)
 
