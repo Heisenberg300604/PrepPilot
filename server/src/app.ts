@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { pinoHttp } from 'pino-http';
 import { clerkClient } from '@clerk/express';
-import type { Config } from './config.js';
+import { parseOrigins, type Config } from './config.js';
 import type { Db } from './db.js';
 import { clerkAuthMiddleware, clerkResolver, requireUser, type AuthResolver } from './auth.js';
 import { badRequest, errorHandler, notFound } from './errors.js';
@@ -48,7 +48,7 @@ export function createApp({ config, db, resolveUser, youtube, lookupIdentity, ra
 
   if (config.NODE_ENV !== 'test') app.use(pinoHttp({ level: config.LOG_LEVEL, redact: ['req.headers.authorization', 'req.headers.cookie'] }));
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } })); // API is consumed cross-origin by the SPA
-  app.use(cors({ origin: config.CLIENT_ORIGIN.split(',').map((s) => s.trim()), credentials: true }));
+  app.use(cors({ origin: parseOrigins(config.CLIENT_ORIGIN), credentials: true }));
 
   // Raw-body webhook route must be registered before express.json().
   app.use('/api/webhooks', webhooksRouter(db, config.CLERK_WEBHOOK_SECRET));

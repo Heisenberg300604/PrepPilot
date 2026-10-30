@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
+import { parseOrigins } from '../src/config.js';
 import { cleanupUsers, makeHarness, seedWorkspace } from './helpers.js';
 
 const { app, as, newUser } = makeHarness();
@@ -111,5 +112,22 @@ describe('cross-user isolation', () => {
     expect((await A.post('/api/exams', { name: 'a\u0000b' })).status).toBe(400);
     const bad = await request(makeHarness().app).post('/api/exams').set('x-test-user', 'u').set('content-type', 'application/json').send('{bad');
     expect(bad.status).toBe(400);
+  });
+});
+
+describe('CORS origin configuration', () => {
+  it('tolerates trailing slashes, quotes, spaces and lists', () => {
+    expect(parseOrigins('https://app.vercel.app/')).toEqual(['https://app.vercel.app']);
+    expect(parseOrigins('"https://app.vercel.app"')).toEqual(['https://app.vercel.app']);
+    expect(parseOrigins(" https://a.com/ , 'https://b.com' ,, ")).toEqual(['https://a.com', 'https://b.com']);
+    expect(parseOrigins('')).toEqual([]);
+  });
+
+  it('answers the preflight for an allowed origin and refuses others', async () => {
+    const { app } = makeHarness();
+    const ok = await request(app).options('/api/exams').set('Origin', 'http://localhost:5173').set('Access-Control-Request-Method', 'GET').set('Access-Control-Request-Headers', 'authorization');
+    expect(ok.headers['access-control-allow-origin']).toBe('http://localhost:5173');
+    const bad = await request(app).options('/api/exams').set('Origin', 'https://evil.example').set('Access-Control-Request-Method', 'GET');
+    expect(bad.headers['access-control-allow-origin']).toBeUndefined();
   });
 });

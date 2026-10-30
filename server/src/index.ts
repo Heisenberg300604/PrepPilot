@@ -1,4 +1,4 @@
-import { loadConfig } from './config.js';
+import { loadConfig, parseOrigins } from './config.js';
 import { createPrisma } from './db.js';
 import { createApp } from './app.js';
 
@@ -15,6 +15,8 @@ const app = createApp({ config, db });
 const server = app.listen(config.API_PORT, () => {
   console.log(`PrepPilot API listening on :${config.API_PORT} (YouTube import ${config.features.youtube ? 'enabled' : 'disabled — YOUTUBE_API_KEY not set'})`);
 });
+
+console.log(`CORS: allowing browser origins ${JSON.stringify(parseOrigins(config.CLIENT_ORIGIN))}`);
 
 const shutdown = () => server.close(() => db.$disconnect().finally(() => process.exit(0)));
 process.on('SIGTERM', shutdown);

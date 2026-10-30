@@ -28,3 +28,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     features: { youtube: Boolean(c.YOUTUBE_API_KEY), clerkWebhooks: Boolean(c.CLERK_WEBHOOK_SECRET) },
   };
 }
+
+/**
+ * CLIENT_ORIGIN may list several origins. Browsers send origins with no trailing slash and no quotes, and CORS is an
+ * exact match, so tolerate the common copy/paste slips (trailing "/", wrapping quotes, stray spaces).
+ */
+export function parseOrigins(value: string): string[] {
+  return value
+    .split(',')
+    .map((s) => s.trim().replace(/^["']+|["']+$/g, '').trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+}
