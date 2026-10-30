@@ -1,0 +1,28 @@
+# Render Blueprint for the PrepPilot API (the frontend deploys separately, e.g. on Vercel).
+# Render dashboard -> New -> Blueprint -> pick this repo. Secrets marked sync:false are entered in the dashboard.
+services:
+  - type: web
+    name: preppilot-api
+    runtime: node
+    plan: free            # free instances sleep when idle (first request after a pause is slow); use a paid plan for always-on
+    healthCheckPath: /api/health
+    # --include=dev: TypeScript and the Prisma CLI are needed to build. migrate deploy is additive and safe to re-run.
+    buildCommand: npm ci --include=dev && npx prisma migrate deploy && npm run build:api
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL          # Prisma Postgres POOLED url (sslmode=verify-full)
+        sync: false
+      - key: DIRECT_URL            # Prisma Postgres DIRECT url (used by migrate deploy)
+        sync: false
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: CLERK_PUBLISHABLE_KEY
+        sync: false
+      - key: CLERK_WEBHOOK_SECRET  # optional; add after creating the webhook in Clerk
+        sync: false
+      - key: YOUTUBE_API_KEY
+        sync: false
+      - key: CLIENT_ORIGIN         # your frontend URL(s), comma-separated, e.g. https://preppilot.vercel.app
+        sync: false
