@@ -62,7 +62,11 @@ export async function buildIndex(db: Db, userId: string): Promise<LibraryIndex> 
 
   const status = new Map(progress.map((p) => [p.videoId, p.status] as const));
   const playlistVideos = new Map<string, string[]>();
-  for (const it of items) playlistVideos.set(it.playlistId, [...(playlistVideos.get(it.playlistId) ?? []), it.videoId]);
+  for (const it of items) {
+    const list = playlistVideos.get(it.playlistId);
+    if (list) list.push(it.videoId);
+    else playlistVideos.set(it.playlistId, [it.videoId]);
+  }
 
   const parent = new Map(folders.map((f) => [f.id, f.parentFolderId] as const));
   const folderVideos = new Map<string, Set<string>>();

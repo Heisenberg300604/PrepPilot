@@ -15,10 +15,7 @@
 .auth-aside .brand {
   color: #fff;
 }
-.auth-aside .brand-mark {
-  color: #fff;
-}
-.auth-aside .brand-mark rect {
+.auth-aside .brand-mark-tile {
   fill: rgba(255, 255, 255, 0.18);
 }
 .auth-aside h1 {
@@ -85,90 +82,4 @@
   display: grid;
   gap: 6px;
   margin: 0;
-}
-
-/* landing */
-.landing {
-  min-height: 100dvh;
-}
-.landing-nav {
-  max-width: 1120px;
-  margin: 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 18px 20px;
-}
-.landing-nav-actions {
-  display: flex;
-  gap: 8px;
-}
-.hero {
-  max-width: 820px;
-  margin: 0 auto;
-  padding: 72px 20px 56px;
-  text-align: center;
-  display: grid;
-  gap: 18px;
-  justify-items: center;
-}
-.hero h1 {
-  font-size: clamp(34px, 6vw, 56px);
-  line-height: 1.08;
-  font-weight: 800;
-}
-.hero-sub {
-  font-size: 18px;
-  color: var(--text-2);
-  max-width: 600px;
-}
-.hero-actions {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  justify-content: center;
-  margin-top: 8px;
-}
-.hero-note {
-  font-size: 13px;
-  color: var(--text-3);
-  max-width: 520px;
-}
-.landing-features {
-  max-width: 1120px;
-  margin: 0 auto;
-  padding: 24px 20px 64px;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 16px;
-}
-.feature {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 22px;
-  display: grid;
-  gap: 8px;
-}
-.feature h2 {
-  font-size: 17px;
-}
-.feature p {
-  color: var(--text-2);
-  font-size: 14.5px;
-}
-.feature-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  background: var(--accent-soft);
-  color: var(--accent-text);
-  display: grid;
-  place-items: center;
-}
-.landing-foot {
-  text-align: center;
-  padding: 24px;
-  color: var(--text-3);
-  font-size: 13px;
 }

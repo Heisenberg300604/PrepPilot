@@ -1,10 +1,11 @@
 import { SignIn, SignUp } from '@clerk/clerk-react';
 import { Brand } from '@/components/layout/Brand';
 import { brand } from '@/config/brand';
-import { useDocumentTitle } from '@/lib/hooks';
+import { useDocumentTitle, useNoIndex } from '@/lib/hooks';
 import { clerkAppearance } from './appearance';
 
 function AuthFrame({ children, heading, sub }: { children: React.ReactNode; heading: string; sub: string }) {
+  useNoIndex();
   return (
     <main className="auth-page">
       <aside className="auth-aside">

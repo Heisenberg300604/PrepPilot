@@ -12,8 +12,11 @@ export const clerkResolver: AuthResolver = (req) => {
   return auth.isAuthenticated ? auth.userId : null;
 };
 
-/** Clerk's middleware (verifies the token / populates req.auth). Needs CLERK_SECRET_KEY + publishable key. */
-export const clerkAuthMiddleware = (): RequestHandler => clerkMiddleware();
+/**
+ * Clerk's middleware (verifies the token / populates req.auth). Needs CLERK_SECRET_KEY + publishable key.
+ * `authorizedParties` rejects session tokens minted for any other frontend origin (the token's `azp` claim).
+ */
+export const clerkAuthMiddleware = (authorizedParties: string[]): RequestHandler => clerkMiddleware({ authorizedParties });
 
 export interface RequestUser {
   /** Internal UserProfile.id — the value stored in every `userId` column. */

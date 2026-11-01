@@ -69,8 +69,9 @@ export async function upsertYoutubeVideos(tx: Tx, userId: string, videos: YtVide
       skipDuplicates: true,
     });
   }
+  const freshById = new Map(videos.map((x) => [x.youtubeVideoId, x] as const));
   for (const v of existing) {
-    const fresh = videos.find((x) => x.youtubeVideoId === v.youtubeVideoId)!;
+    const fresh = freshById.get(v.youtubeVideoId!)!;
     const data: Record<string, unknown> = {};
     if (!v.isCustomized && fresh.title !== v.title && fresh.availability === 'AVAILABLE') data.title = fresh.title;
     if (!v.isCustomized && fresh.description && fresh.description !== v.description) data.description = fresh.description;

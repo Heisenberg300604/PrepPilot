@@ -34,7 +34,6 @@
   letter-spacing: -0.03em;
 }
 .brand-mark {
-  color: var(--accent);
   flex-shrink: 0;
 }
 .nav {

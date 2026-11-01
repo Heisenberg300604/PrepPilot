@@ -230,6 +230,9 @@
   gap: 8px;
   flex-wrap: wrap;
   align-items: center;
+  /* previously inherited from the old global landing styles; kept so the exam header looks the same */
+  justify-content: center;
+  margin-top: 8px;
 }
 .stat-strip {
   display: grid;

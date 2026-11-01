@@ -18,7 +18,11 @@ export interface FlatFolder extends Folder {
 /** Depth-first flattening of a subject's folders so pickers can show an indented tree. */
 export function flattenFolders(folders: Folder[]): FlatFolder[] {
   const byParent = new Map<string | null, Folder[]>();
-  for (const f of folders) byParent.set(f.parentFolderId, [...(byParent.get(f.parentFolderId) ?? []), f]);
+  for (const f of folders) {
+    const siblings = byParent.get(f.parentFolderId);
+    if (siblings) siblings.push(f);
+    else byParent.set(f.parentFolderId, [f]);
+  }
   const out: FlatFolder[] = [];
   const walk = (parent: string | null, depth: number, path: string[]) => {
     for (const f of (byParent.get(parent) ?? []).sort((a, b) => a.displayOrder - b.displayOrder || a.name.localeCompare(b.name))) {

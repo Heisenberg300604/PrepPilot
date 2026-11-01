@@ -49,7 +49,11 @@ export async function descendantFolderIds(db: Client, userId: string, folderId: 
   const folder = await own.folder(db, userId, folderId);
   const all = await db.folder.findMany({ where: { userId, subjectId: folder.subjectId }, select: { id: true, parentFolderId: true } });
   const byParent = new Map<string | null, string[]>();
-  for (const f of all) byParent.set(f.parentFolderId, [...(byParent.get(f.parentFolderId) ?? []), f.id]);
+  for (const f of all) {
+    const siblings = byParent.get(f.parentFolderId);
+    if (siblings) siblings.push(f.id);
+    else byParent.set(f.parentFolderId, [f.id]);
+  }
   const out: string[] = [];
   const stack = [folderId];
   while (stack.length) {

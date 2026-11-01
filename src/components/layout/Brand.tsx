@@ -1,12 +1,27 @@
+import { useId } from 'react';
 import { Link } from 'react-router-dom';
 import { brand } from '@/config/brand';
 
+/**
+ * The PrepPilot mark: a "P" whose counter is a play button, on the brand tile. Same artwork as /favicon.svg.
+ * The tile keeps the brand gradient in both themes, so the mark reads the same on light and dark backgrounds.
+ */
 export function BrandMark({ size = 30 }: { size?: number }) {
+  const id = useId();
   return (
-    <svg width={size} height={size} viewBox="0 0 64 64" role="img" aria-hidden className="brand-mark">
-      <rect width="64" height="64" rx="16" fill="currentColor" />
-      <path d="M20 46V18h13.5c6.400 0 10.500 3.700 10.500 9.300S39.900 36.600 33.500 36.600H27V46z" fill="#fff" />
-      <path d="M44 38l8-4-8-4z" fill="#c7d2fe" />
+    <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden className="brand-mark">
+      <defs>
+        <linearGradient id={`${id}g`} x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#6366f1" />
+          <stop offset="1" stopColor="#4338ca" />
+        </linearGradient>
+        <mask id={`${id}m`}>
+          <path fill="#fff" d="M19 18a3 3 0 0 1 3-3h12a11 11 0 0 1 0 22h-7v9a3 3 0 0 1-3 3h-2a3 3 0 0 1-3-3z" />
+          <path fill="#000" stroke="#000" strokeWidth="2" strokeLinejoin="round" d="M30 22.2v7.6l6.6-3.8z" />
+        </mask>
+      </defs>
+      <rect className="brand-mark-tile" width="64" height="64" rx="15" fill={`url(#${id}g)`} />
+      <rect width="64" height="64" fill="#fff" mask={`url(#${id}m)`} />
     </svg>
   );
 }

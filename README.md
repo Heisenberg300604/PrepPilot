@@ -119,6 +119,7 @@ capped at 500 imported videos per request.
 | `CLIENT_ORIGIN` | API | Comma-separated allowed browser origins (CORS) |
 | `LOG_LEVEL` | API | Pino level, default `info` |
 | `VITE_API_BASE_URL` | Browser | Public API URL in production; empty in dev (Vite proxies `/api`) |
+| `VITE_SITE_URL` | Build (optional) | Public frontend URL for canonical/OG tags, JSON-LD and `sitemap.xml` (Vercel falls back to its production domain) |
 | `TEST_DATABASE_URL` | Tests | Must end in `_test`; tests refuse to run otherwise |
 
 Never commit `.env`. Only `VITE_*` values are bundled into the frontend; everything else stays on the server.

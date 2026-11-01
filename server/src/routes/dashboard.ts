@@ -31,10 +31,15 @@ export function dashboardRouter(db: Db) {
       db.studyTask.findMany({ where: { userId, scheduledDate: day }, include: taskInclude, orderBy: [{ status: 'desc' }, { createdAt: 'asc' }] }),
       db.studyTask.count({ where: { userId, status: 'TODO', scheduledDate: { lt: day } } }),
       db.studyTask.count({ where: { userId, status: 'TODO', scheduledDate: { gt: day } } }),
-      db.video.findMany({
-        where: { userId, progress: { some: { status: 'IN_PROGRESS', lastStudiedAt: { not: null } } } },
-        include: { ...videoInclude, placements: { take: 1 }, playlistItems: { take: 1, include: { playlist: { select: { id: true, title: true, placements: { take: 1 } } } } } },
-      }),
+      // Only the six most recently studied in-progress videos are shown; pick them via the (userId, lastStudiedAt) index.
+      db.videoProgress
+        .findMany({ where: { userId, status: 'IN_PROGRESS', lastStudiedAt: { not: null }, video: { userId } }, orderBy: { lastStudiedAt: 'desc' }, take: 6, select: { videoId: true } })
+        .then((recent) =>
+          db.video.findMany({
+            where: { userId, id: { in: recent.map((p) => p.videoId) } },
+            include: { ...videoInclude, placements: { take: 1 }, playlistItems: { take: 1, include: { playlist: { select: { id: true, title: true, placements: { take: 1 } } } } } },
+          }),
+        ),
     ]);
 
     // Every active exam's videos, deduplicated, for the overall figures.

@@ -48,7 +48,8 @@ export function createApp({ config, db, resolveUser, youtube, lookupIdentity, ra
 
   if (config.NODE_ENV !== 'test') app.use(pinoHttp({ level: config.LOG_LEVEL, redact: ['req.headers.authorization', 'req.headers.cookie'] }));
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } })); // API is consumed cross-origin by the SPA
-  app.use(cors({ origin: parseOrigins(config.CLIENT_ORIGIN), credentials: true }));
+  const origins = parseOrigins(config.CLIENT_ORIGIN);
+  app.use(cors({ origin: origins, credentials: true }));
 
   // Raw-body webhook route must be registered before express.json().
   app.use('/api/webhooks', webhooksRouter(db, config.CLERK_WEBHOOK_SECRET));
@@ -65,7 +66,7 @@ export function createApp({ config, db, resolveUser, youtube, lookupIdentity, ra
   const limiter = (windowMs: number, limit: number) =>
     rateLimits ? [rateLimit({ windowMs, limit, standardHeaders: 'draft-7', legacyHeaders: false, message: { error: { code: 'RATE_LIMITED', message: 'Too many requests. Please slow down.' } } })] : [];
   const resolver = resolveUser ?? clerkResolver;
-  if (!resolveUser) app.use('/api', clerkAuthMiddleware());
+  if (!resolveUser) app.use('/api', clerkAuthMiddleware(origins));
 
   const api = express.Router();
   for (const mw of limiter(60_000, 600)) api.use(mw);

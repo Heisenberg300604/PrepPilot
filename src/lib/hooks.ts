@@ -29,6 +29,26 @@ export function useDebounced<T>(value: T, ms = 250): T {
   return v;
 }
 
+/**
+ * Asks search engines not to index the current page (private, auth and not-found pages).
+ * Restores the previous directive on unmount so the public landing page stays indexable.
+ */
+export function useNoIndex() {
+  useEffect(() => {
+    let meta = document.querySelector<HTMLMetaElement>('meta[name="robots"]');
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.name = 'robots';
+      document.head.appendChild(meta);
+    }
+    const previous = meta.content;
+    meta.content = 'noindex, nofollow';
+    return () => {
+      meta.content = previous;
+    };
+  }, []);
+}
+
 /** Sets document.title as "<page> · PrepPilot". */
 export function useDocumentTitle(title?: string) {
   useEffect(() => {

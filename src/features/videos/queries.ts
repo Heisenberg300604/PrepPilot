@@ -1,7 +1,10 @@
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { api, keys } from '@/lib/api';
 import type { ProgressStatus, Video, VideoDetail, VideoList } from '@/lib/types';
-import { useApiMutation } from '@/lib/useApi';
+import { patchCached, useApiMutation } from '@/lib/useApi';
+
+/** Every cache that can hold a video row (lists, folder contents, playlist pages, the study page, the dashboard). */
+const VIDEO_CACHES: QueryKey[] = [['contents'], keys.videos, keys.playlists, ['video'], keys.dashboard];
 
 export interface VideoQuery {
   q?: string;
@@ -36,19 +39,24 @@ export const useAddVideo = () => useApiMutation<AddVideoInput, Video>((body) => 
 export const useUpdateVideo = () => useApiMutation<{ id: string; title?: string; description?: string | null }, Video>(({ id, ...body }) => ({ path: `/videos/${id}`, method: 'PATCH', body }));
 
 /** Status and playback position are independent; position-only saves never change a COMPLETED video's status. */
-export const useSetProgress = () =>
-  useApiMutation<{ id: string; status?: ProgressStatus; lastPositionSeconds?: number }, { status: ProgressStatus; lastPositionSeconds: number }>(({ id, ...body }) => ({
-    path: `/videos/${id}/progress`,
-    method: 'PUT',
-    body,
-  }));
+export const useSetProgress = () => {
+  const qc = useQueryClient();
+  return useApiMutation<{ id: string; status?: ProgressStatus; lastPositionSeconds?: number }, { status: ProgressStatus; lastPositionSeconds: number }>(
+    ({ id, ...body }) => ({ path: `/videos/${id}/progress`, method: 'PUT', body }),
+    { onMutate: ({ id, status }) => (status ? patchCached(qc, VIDEO_CACHES, id, { status }) : undefined) },
+  );
+};
 /** Fire-and-forget position saves while playing: no toast spam, no list refetch storms. */
 export const useSavePosition = () =>
   useApiMutation<{ id: string; lastPositionSeconds: number }>(({ id, ...body }) => ({ path: `/videos/${id}/progress`, method: 'PUT', body }), { invalidate: [], silentError: true });
 export const useOpenVideo = () => useApiMutation<string>((id) => ({ path: `/videos/${id}/open`, method: 'POST' }), { invalidate: [keys.dashboard, keys.activity, keys.videos], silentError: true });
 export const useSaveNote = () =>
   useApiMutation<{ id: string; content: string }, { content: string; updatedAt: string }>(({ id, content }) => ({ path: `/videos/${id}/note`, method: 'PUT', body: { content } }), { invalidate: [], silentError: true });
-export const useToggleFavorite = () =>
-  useApiMutation<{ id: string; favorite: boolean }>(({ id, favorite }) => ({ path: `/videos/${id}/favorite`, method: 'PUT', body: { favorite } }));
+export const useToggleFavorite = () => {
+  const qc = useQueryClient();
+  return useApiMutation<{ id: string; favorite: boolean }>(({ id, favorite }) => ({ path: `/videos/${id}/favorite`, method: 'PUT', body: { favorite } }), {
+    onMutate: ({ id, favorite }) => patchCached(qc, VIDEO_CACHES, id, { favorite }),
+  });
+};
 /** Without force=true the API answers 409 with details {placements, playlists, hasProgress, hasNote, favorite} when the video is in use. */
 export const useDeleteVideo = () => useApiMutation<{ id: string; force?: boolean }>(({ id, force }) => ({ path: `/videos/${id}`, method: 'DELETE', query: { force: force ? 'true' : undefined } }), { silentError: true });

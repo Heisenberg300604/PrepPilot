@@ -70,20 +70,21 @@ export function videosRouter(db: Db, yt: YouTubeApi) {
       q.sort === 'title' ? [{ title: 'asc' }] : q.sort === 'duration' ? [{ durationSeconds: { sort: 'desc', nulls: 'last' } }] : [{ createdAt: 'desc' }];
     const sortByStudied = q.sort === 'studied' || q.sort === 'recent';
 
-    const [total, rows] = await Promise.all([
-      db.video.count({ where }),
-      db.video.findMany({
-        where,
-        include: { ...videoInclude, placements: { take: 2 }, playlistItems: { take: 2, include: { playlist: { select: { id: true, title: true, placements: { take: 1 } } } } } },
-        orderBy: sortByStudied ? [{ progress: { _count: 'desc' } }, ...orderBy] : orderBy,
-        ...(sortByStudied ? {} : { skip: q.offset, take: q.limit }),
-      }),
-    ]);
-    let page = rows;
+    const include = { ...videoInclude, placements: { take: 2 }, playlistItems: { take: 2, include: { playlist: { select: { id: true, title: true, placements: { take: 1 } } } } } } as const;
+    let total: number;
+    let page;
     if (sortByStudied) {
-      page = [...rows]
+      // Sorting by lastStudiedAt happens in memory, so rank lightweight rows first and load full rows for this page only.
+      const ranked = await db.video.findMany({ where, select: { id: true, progress: { select: { lastStudiedAt: true } } }, orderBy: [{ progress: { _count: 'desc' } }, ...orderBy] });
+      total = ranked.length;
+      const ids = ranked
         .sort((a, b) => (b.progress[0]?.lastStudiedAt?.getTime() ?? 0) - (a.progress[0]?.lastStudiedAt?.getTime() ?? 0))
-        .slice(q.offset, q.offset + q.limit);
+        .slice(q.offset, q.offset + q.limit)
+        .map((v) => v.id);
+      const full = new Map((await db.video.findMany({ where: { userId, id: { in: ids } }, include })).map((v) => [v.id, v] as const));
+      page = ids.map((id) => full.get(id)).filter((v): v is NonNullable<typeof v> => Boolean(v));
+    } else {
+      [total, page] = await Promise.all([db.video.count({ where }), db.video.findMany({ where, include, orderBy, skip: q.offset, take: q.limit })]);
     }
     const locs = page.map((v) => {
       const p = v.placements[0] ?? v.playlistItems[0]?.playlist.placements[0];

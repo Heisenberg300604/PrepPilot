@@ -1,7 +1,6 @@
 import { SignedIn, SignedOut, useAuth } from '@clerk/clerk-react';
 import { lazy, Suspense, type ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
-import { AppShell } from '@/components/layout/AppShell';
 import { ErrorState, PageLoading } from '@/components/ui';
 import { AuthBridge } from '@/features/auth/AuthBridge';
 import { SignInPage, SignUpPage } from '@/features/auth/AuthPages';
@@ -9,9 +8,12 @@ import { Landing } from '@/features/auth/Landing';
 import { useExams } from '@/features/common/queries';
 import { DialogProvider } from '@/lib/dialogs';
 import { fromApiTheme, useTheme } from '@/lib/theme';
-import { useProfile } from '@/lib/hooks';
+import { useNoIndex, useProfile } from '@/lib/hooks';
 import { useEffect } from 'react';
 
+// The signed-in shell is only downloaded once someone signs in; the landing page stays light.
+const AppShell = lazy(() => import('@/components/layout/AppShell').then((m) => ({ default: m.AppShell })));
+const NotFound = lazy(() => import('@/features/auth/NotFound'));
 const Dashboard = lazy(() => import('@/features/dashboard/DashboardPage'));
 const Onboarding = lazy(() => import('@/features/onboarding/OnboardingPage'));
 const ExamsPage = lazy(() => import('@/features/exams/ExamsPage'));
@@ -52,6 +54,7 @@ function OnboardingGate({ children }: { children: ReactNode }) {
 
 function Protected({ children }: { children: ReactNode }) {
   const { isLoaded } = useAuth();
+  useNoIndex();
   if (!isLoaded) return <PageLoading label="Checking your session…" />;
   return (
     <>
@@ -102,7 +105,7 @@ export default function App() {
           <Route path="/planner" element={<PlannerPage />} />
           <Route path="/settings/*" element={<SettingsPage />} />
         </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </Suspense>
   );
