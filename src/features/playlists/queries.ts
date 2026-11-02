@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, keys } from '@/lib/api';
 import type { Destination, ImportResult, Playlist, PlaylistDetail, PlaylistPreview, SyncResult } from '@/lib/types';
 import { useApiMutation } from '@/lib/useApi';
@@ -37,3 +37,29 @@ export const useRestorePlaylistVideos = () =>
     method: 'POST',
     body: { restore: youtubeVideoIds },
   }));
+
+/** Saves a new video order. The list updates instantly; a failure puts the old order back (and toasts). */
+export const useReorderPlaylist = (playlistId: string) => {
+  const qc = useQueryClient();
+  const key = keys.playlist(playlistId);
+  return useApiMutation<string[]>((videoIds) => ({ path: `/playlists/${playlistId}/order`, method: 'PUT', body: { videoIds } }), {
+    invalidate: [key, ['video']],
+    onMutate: async (videoIds) => {
+      await qc.cancelQueries({ queryKey: key });
+      const previous = qc.getQueryData<PlaylistDetail>(key);
+      if (previous) {
+        const pos = new Map(videoIds.map((id, i) => [id, i] as const));
+        const parked = previous.videos.filter((v) => !pos.has(v.id)).sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+        parked.forEach((v, i) => pos.set(v.id, videoIds.length + i));
+        qc.setQueryData<PlaylistDetail>(key, { ...previous, customOrder: true, videos: previous.videos.map((v) => ({ ...v, position: pos.get(v.id) ?? v.position })) });
+      }
+      return { previous };
+    },
+    onError: (_e, _v, ctx) => {
+      const previous = (ctx as { previous?: PlaylistDetail } | undefined)?.previous;
+      if (previous) qc.setQueryData(key, previous);
+    },
+  });
+};
+/** Drops the custom order; follow with a sync to put videos back in YouTube order. */
+export const useResetPlaylistOrder = () => useApiMutation<string>((id) => ({ path: `/playlists/${id}/order`, method: 'DELETE' }), { invalidate: [] });

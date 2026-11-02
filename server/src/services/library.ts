@@ -85,17 +85,31 @@ export async function upsertYoutubeVideos(tx: Tx, userId: string, videos: YtVide
   return { map: new Map(all.map((v) => [v.youtubeVideoId!, v.id] as const)), created: toCreate.length };
 }
 
-/** Reconciles playlist membership with the source. Never deletes rows: vanished items are flagged. */
-export async function syncPlaylistItems(tx: Tx, playlistId: string, videos: YtVideo[], videoIds: Map<string, string>) {
+/**
+ * Reconciles playlist membership with the source. Never deletes rows: vanished items are flagged.
+ * With `keepOrder` (the user reordered the playlist) existing items keep their relative order and new
+ * videos are appended after them; otherwise positions follow the source.
+ */
+export async function syncPlaylistItems(tx: Tx, playlistId: string, videos: YtVideo[], videoIds: Map<string, string>, { keepOrder = false } = {}) {
   const items = await tx.playlistVideo.findMany({ where: { playlistId } });
   const byVideo = new Map(items.map((i) => [i.videoId, i] as const));
   const seen = new Set<string>();
-  const toCreate: { playlistId: string; videoId: string; position: number }[] = [];
-  let position = 0;
+  const sourceOrder: string[] = [];
   for (const v of videos) {
     const videoId = videoIds.get(v.youtubeVideoId);
     if (!videoId || seen.has(videoId)) continue;
     seen.add(videoId);
+    sourceOrder.push(videoId);
+  }
+  const ordered = keepOrder
+    ? [
+        ...sourceOrder.filter((id) => byVideo.has(id)).sort((a, b) => byVideo.get(a)!.position - byVideo.get(b)!.position),
+        ...sourceOrder.filter((id) => !byVideo.has(id)),
+      ]
+    : sourceOrder;
+  const toCreate: { playlistId: string; videoId: string; position: number }[] = [];
+  let position = 0;
+  for (const videoId of ordered) {
     const item = byVideo.get(videoId);
     if (!item) toCreate.push({ playlistId, videoId, position });
     else if (item.position !== position || item.removedFromSource) await tx.playlistVideo.update({ where: { id: item.id }, data: { position, removedFromSource: false } });

@@ -1,7 +1,7 @@
-import { ArrowRightLeft, CheckSquare, ExternalLink, FolderPlus, ListVideo, MinusCircle, MoreHorizontal, Pencil, Play, Plus, RefreshCw, RotateCcw, Trash2, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { ArrowDown, ArrowRightLeft, ArrowUp, CheckSquare, ChevronsDown, ChevronsUp, GripVertical, ExternalLink, FolderPlus, ListVideo, MinusCircle, MoreHorizontal, Pencil, Play, Plus, RefreshCw, RotateCcw, Trash2, X } from 'lucide-react';
+import { useMemo, useState, type DragEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Breadcrumbs, Button, Checkbox, ConfirmDialog, Dialog, EmptyState, ErrorState, Menu, PageLoading, Progress, Segmented, TextArea, TextField, Thumb } from '@/components/ui';
+import { Breadcrumbs, Button, Checkbox, ConfirmDialog, Dialog, EmptyState, ErrorState, Menu, PageLoading, Progress, Segmented, TextArea, TextField, Thumb, type MenuItem } from '@/components/ui';
 import { MoveDialog } from '@/features/common/MoveDialog';
 import { useAddPlacement, useMovePlacement, useRemovePlacement } from '@/features/subjects/queries';
 import { VideoRow } from '@/features/videos/VideoRow';
@@ -9,10 +9,21 @@ import { useDialogs } from '@/lib/dialogs';
 import { formatDate, locationText, plural } from '@/lib/format';
 import { useDocumentTitle, useMeta } from '@/lib/hooks';
 import { toast } from '@/lib/toast';
-import type { PlaylistDetail, Placement } from '@/lib/types';
-import { filterSortVideos, nextUnwatched, watchUrl, type VideoFilter, type VideoSort } from './helpers';
-import { useDeletePlaylist, usePlaylist, useRemovePlaylistVideos, useRestorePlaylistVideos, useSyncPlaylist, useUpdatePlaylist } from './queries';
+import type { PlaylistDetail, Placement, Video } from '@/lib/types';
+import { filterSortVideos, moveRelative, nextUnwatched, watchUrl, type VideoFilter, type VideoSort } from './helpers';
+import { useDeletePlaylist, usePlaylist, useRemovePlaylistVideos, useReorderPlaylist, useResetPlaylistOrder, useRestorePlaylistVideos, useSyncPlaylist, useUpdatePlaylist } from './queries';
 import './playlists.css';
+
+// Per-viewer view preference; storage can be unavailable (private mode), so default to on.
+const COMPLETED_LAST_KEY = 'preppilot.completedLast';
+const readCompletedLast = () => {
+  try {
+    return localStorage.getItem(COMPLETED_LAST_KEY) !== 'false';
+  } catch {
+    return true;
+  }
+};
+const ORDER_MIME = 'application/x-preppilot-order';
 
 const placementLink = (p: Placement) => `/subjects/${p.subjectId}${p.folderId ? `?folder=${p.folderId}` : ''}`;
 
@@ -89,6 +100,19 @@ export default function PlaylistPage() {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<VideoFilter>('ALL');
   const [sort, setSort] = useState<VideoSort>('ORDER');
+  const [completedLast, setCompletedLastState] = useState(readCompletedLast);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropHint, setDropHint] = useState<{ id: string; where: 'before' | 'after' } | null>(null);
+  const reorder = useReorderPlaylist(playlistId ?? '');
+  const resetOrder = useResetPlaylistOrder();
+  const setCompletedLast = (on: boolean) => {
+    setCompletedLastState(on);
+    try {
+      localStorage.setItem(COMPLETED_LAST_KEY, String(on));
+    } catch {
+      /* preference just won't persist */
+    }
+  };
   const [modal, setModal] = useState<null | { kind: 'edit' } | { kind: 'delete' } | { kind: 'add' } | { kind: 'move'; p: Placement } | { kind: 'remove'; p: Placement } | { kind: 'removeVideos'; ids: string[] }>(null);
   const pl = q.data;
   useDocumentTitle(pl?.title);
@@ -97,7 +121,7 @@ export default function PlaylistPage() {
     const live = (pl?.videos ?? []).filter((v) => !v.removedFromSource);
     return { ALL: pl?.videos.length ?? 0, NOT_STARTED: live.filter((v) => v.status === 'NOT_STARTED').length, IN_PROGRESS: live.filter((v) => v.status === 'IN_PROGRESS').length, COMPLETED: live.filter((v) => v.status === 'COMPLETED').length };
   }, [pl]);
-  const shown = useMemo(() => filterSortVideos(pl?.videos ?? [], filter, sort), [pl, filter, sort]);
+  const shown = useMemo(() => filterSortVideos(pl?.videos ?? [], filter, sort, completedLast), [pl, filter, sort, completedLast]);
 
   if (q.isLoading) return <PageLoading label="Loading playlist…" />;
   if (q.isError || !pl) return <ErrorState error={q.error} onRetry={() => q.refetch()} title={q.error && (q.error as any).status === 404 ? 'Playlist not found' : "We couldn't load this playlist"} />;
@@ -106,6 +130,58 @@ export default function PlaylistPage() {
   const next = nextUnwatched(pl.videos);
   const noKey = meta.data?.features.youtubeImport === false;
   const started = pl.stats.completed + pl.stats.inProgress > 0;
+
+  // ── reordering ── only in the plain "All + playlist order" view, so what you drag is what gets saved.
+  const savedOrder = pl.videos.filter((v) => !v.removedFromSource).sort((a, b) => (a.position ?? 0) - (b.position ?? 0)).map((v) => v.id);
+  const canReorder = sort === 'ORDER' && filter === 'ALL' && !selecting && savedOrder.length > 1;
+  const shownLive = shown.filter((v) => !v.removedFromSource);
+  // With "completed at the end" on, moves stay within a video's group (unfinished / finished), as the view would undo anything else.
+  const group = (v: Video) => (completedLast && v.status === 'COMPLETED' ? 1 : 0);
+  const peers = (v: Video) => shownLive.filter((x) => group(x) === group(v));
+  const moveTo = (id: string, targetId: string, where: 'before' | 'after') => {
+    const next = moveRelative(savedOrder, id, targetId, where);
+    if (next.some((x, i) => x !== savedOrder[i])) reorder.mutate(next);
+  };
+  const orderMenu = (v: Video): MenuItem[] => {
+    if (!canReorder || v.removedFromSource) return [];
+    const list = peers(v);
+    const i = list.findIndex((x) => x.id === v.id);
+    const items: MenuItem[] = [];
+    if (i > 0) {
+      items.push({ label: 'Move to top', icon: <ChevronsUp size={16} />, onSelect: () => moveTo(v.id, list[0].id, 'before') });
+      items.push({ label: 'Move up', icon: <ArrowUp size={16} />, onSelect: () => moveTo(v.id, list[i - 1].id, 'before') });
+    }
+    if (i < list.length - 1) {
+      items.push({ label: 'Move down', icon: <ArrowDown size={16} />, onSelect: () => moveTo(v.id, list[i + 1].id, 'after') });
+      items.push({ label: 'Move to bottom', icon: <ChevronsDown size={16} />, onSelect: () => moveTo(v.id, list[list.length - 1].id, 'after') });
+    }
+    return items;
+  };
+  const dropProps = (v: Video) => {
+    if (!canReorder || v.removedFromSource) return {};
+    const accepts = (e: DragEvent) => e.dataTransfer.types.includes(ORDER_MIME) && dragId != null && dragId !== v.id && group(shownLive.find((x) => x.id === dragId)!) === group(v);
+    return {
+      onDragOver: (e: DragEvent<HTMLDivElement>) => {
+        if (!accepts(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        const r = e.currentTarget.getBoundingClientRect();
+        const where = e.clientY < r.top + r.height / 2 ? 'before' : 'after';
+        if (dropHint?.id !== v.id || dropHint.where !== where) setDropHint({ id: v.id, where });
+      },
+      onDragLeave: (e: DragEvent<HTMLDivElement>) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropHint((h) => (h?.id === v.id ? null : h));
+      },
+      onDrop: (e: DragEvent<HTMLDivElement>) => {
+        if (!accepts(e)) return;
+        e.preventDefault();
+        const r = e.currentTarget.getBoundingClientRect();
+        moveTo(dragId!, v.id, e.clientY < r.top + r.height / 2 ? 'before' : 'after');
+        setDropHint(null);
+        setDragId(null);
+      },
+    };
+  };
 
   const crumbs = [
     { label: 'My exams', to: '/exams' },
@@ -192,6 +268,9 @@ export default function PlaylistPage() {
                 { label: 'Edit title & description', icon: <Pencil size={16} />, onSelect: () => setModal({ kind: 'edit' }) },
                 { label: 'Add to another location', icon: <FolderPlus size={16} />, onSelect: () => setModal({ kind: 'add' }) },
                 ...(pl.sourceUrl ? [{ label: 'Open on YouTube', icon: <ExternalLink size={16} />, onSelect: () => window.open(pl.sourceUrl!, '_blank', 'noopener') }] : []),
+                ...(pl.customOrder && !pl.isLocal && !noKey
+                  ? [{ label: 'Reset to YouTube order', icon: <RotateCcw size={16} />, onSelect: () => resetOrder.mutate(pl.id, { onSuccess: () => sync.mutate(pl.id, { onSuccess: () => toast.success('Back in YouTube order') }) }) }]
+                  : []),
                 { label: 'Delete playlist', icon: <Trash2 size={16} />, danger: true, separated: true, onSelect: () => setModal({ kind: 'delete' }) },
               ]}
             />
@@ -239,10 +318,11 @@ export default function PlaylistPage() {
         <Button size="sm" variant={selecting ? 'primary' : 'secondary'} icon={selecting ? <X size={15} /> : <CheckSquare size={15} />} onClick={() => (selecting ? stopSelecting() : setSelecting(true))} aria-pressed={selecting}>
           {selecting ? 'Done' : 'Select videos'}
         </Button>
+        <Checkbox checked={completedLast} onChange={(e) => setCompletedLast(e.target.checked)} label="Completed at the end" />
         <label className="sort-select">
           Sort by
           <select className="input select" value={sort} onChange={(e) => setSort(e.target.value as VideoSort)}>
-            <option value="ORDER">Original order</option>
+            <option value="ORDER">{pl.customOrder ? 'Your order' : 'Original order'}</option>
             <option value="TITLE">Title</option>
             <option value="DURATION">Duration (longest)</option>
             <option value="STATUS">Completion status</option>
@@ -278,17 +358,42 @@ export default function PlaylistPage() {
           )}
           <div role="list" aria-label="Videos">
             {shown.map((v) => (
-              <div role="listitem" key={v.id} className={`sel-row ${selecting ? 'is-selecting' : ''} ${picked.has(v.id) ? 'is-picked' : ''}`}>
+              <div
+                role="listitem"
+                key={v.id}
+                className={`sel-row ${selecting ? 'is-selecting' : ''} ${picked.has(v.id) ? 'is-picked' : ''} ${canReorder && !v.removedFromSource ? 'is-sortable' : ''} ${dragId === v.id ? 'is-dragging' : ''} ${dropHint?.id === v.id ? `drop-${dropHint.where}` : ''}`}
+                {...dropProps(v)}
+              >
                 {selecting && <input type="checkbox" className="sel-check" checked={picked.has(v.id)} onChange={() => togglePick(v.id)} aria-label={`Select ${v.title}`} />}
+                {canReorder && !v.removedFromSource && (
+                  <span
+                    className="drag-handle"
+                    draggable
+                    title="Drag to reorder"
+                    aria-hidden
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData(ORDER_MIME, v.id);
+                      e.dataTransfer.effectAllowed = 'move';
+                      const row = e.currentTarget.parentElement;
+                      if (row) e.dataTransfer.setDragImage(row, 24, 24);
+                      setDragId(v.id);
+                    }}
+                    onDragEnd={() => (setDragId(null), setDropHint(null))}
+                  >
+                    <GripVertical size={18} />
+                  </span>
+                )}
                 <VideoRow
                   video={v}
                   playlistId={pl.id}
                   index={sort === 'ORDER' && filter === 'ALL' ? (v.position ?? 0) + 1 : undefined}
                   extraMenu={[
+                    ...orderMenu(v),
                     {
                       label: pl.isLocal ? 'Remove from collection' : 'Remove from this playlist',
                       icon: <MinusCircle size={16} />,
                       danger: true,
+                      separated: true,
                       onSelect: () => (v.status === 'NOT_STARTED' && !v.favorite ? removeNow([v.id]) : setModal({ kind: 'removeVideos', ids: [v.id] })),
                     },
                   ]}

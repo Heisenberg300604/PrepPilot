@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '@/lib/api';
 import type { Video } from '@/lib/types';
-import { allSelected, filterSortVideos, importErrorMessage, importLabel, initialSelection, nextUnwatched, setRange, toggleId, watchUrl } from './helpers';
+import { allSelected, filterSortVideos, importErrorMessage, importLabel, initialSelection, moveRelative, nextUnwatched, setRange, toggleId, watchUrl } from './helpers';
 
 const v = (n: number, o: Partial<Video> = {}): Video => ({
   id: `v${n}`, youtubeVideoId: null, title: `T${n}`, description: null, thumbnailUrl: null, sourceUrl: null, channelTitle: null, durationSeconds: n * 10,
@@ -29,6 +29,27 @@ describe('filterSortVideos', () => {
     expect(filterSortVideos(list, 'ALL', 'DURATION').map((x) => x.id)).toEqual(['v4', 'v3', 'v2', 'v1']);
     expect(filterSortVideos(list, 'ALL', 'STATUS').map((x) => x.id)).toEqual(['v4', 'v2', 'v3', 'v1']);
     expect(filterSortVideos(list, 'ALL', 'TITLE')[0].id).toBe('v2');
+  });
+  it('can park completed videos at the end (above removed ones) in any sort', () => {
+    expect(filterSortVideos(list, 'ALL', 'ORDER', true).map((x) => x.id)).toEqual(['v2', 'v4', 'v3', 'v1']);
+    expect(filterSortVideos(list, 'ALL', 'DURATION', true).map((x) => x.id)).toEqual(['v4', 'v2', 'v3', 'v1']);
+  });
+});
+
+describe('moveRelative', () => {
+  const ids = ['a', 'b', 'c', 'd'];
+  it('moves before or after a target in the full order', () => {
+    expect(moveRelative(ids, 'd', 'a', 'before')).toEqual(['d', 'a', 'b', 'c']);
+    expect(moveRelative(ids, 'a', 'c', 'after')).toEqual(['b', 'c', 'a', 'd']);
+    expect(moveRelative(ids, 'b', 'a', 'before')).toEqual(['b', 'a', 'c', 'd']);
+  });
+  it('keeps items it was not asked to move in place', () => {
+    // c is hidden at the end of the view (completed); moving d up past b leaves c's slot alone
+    expect(moveRelative(ids, 'd', 'b', 'before')).toEqual(['a', 'd', 'b', 'c']);
+  });
+  it('ignores no-ops and unknown ids', () => {
+    expect(moveRelative(ids, 'a', 'a', 'after')).toBe(ids);
+    expect(moveRelative(ids, 'x', 'a', 'after')).toBe(ids);
   });
 });
 

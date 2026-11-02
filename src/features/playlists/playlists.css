@@ -240,6 +240,59 @@
   outline-offset: -2px;
   border-radius: var(--radius);
 }
+.sel-row.is-sortable {
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+}
+.drag-handle {
+  display: grid;
+  place-items: center;
+  height: 44px;
+  border-radius: 6px;
+  color: var(--text-3);
+  cursor: grab;
+  touch-action: none;
+}
+.drag-handle:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+.drag-handle:active {
+  cursor: grabbing;
+}
+.sel-row.is-dragging {
+  opacity: 0.45;
+}
+/* Insertion line where the dragged video will land. */
+.sel-row.drop-before::before,
+.sel-row.drop-after::after {
+  content: '';
+  position: absolute;
+  left: 28px;
+  right: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+.sel-row.drop-before::before {
+  top: -5px;
+}
+.sel-row.drop-after::after {
+  bottom: -5px;
+}
+/* Phones have no drag-and-drop; "Move up / down" in each video's menu covers it. */
+@media (hover: none) {
+  .sel-row.is-sortable {
+    display: block;
+  }
+  .drag-handle {
+    display: none;
+  }
+}
 .sel-check {
   width: 20px;
   height: 20px;

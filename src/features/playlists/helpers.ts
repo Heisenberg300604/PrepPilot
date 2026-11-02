@@ -34,15 +34,28 @@ export type VideoSort = 'ORDER' | 'TITLE' | 'DURATION' | 'STATUS';
 const STATUS_RANK = { NOT_STARTED: 0, IN_PROGRESS: 1, COMPLETED: 2 } as const;
 
 /** Client-side filter + sort. Original playlist order is the default; removed-from-source items always sink to the end. */
-export function filterSortVideos(videos: Video[], filter: VideoFilter, sort: VideoSort): Video[] {
+/** `completedLast` is a view preference: finished videos sink to the end without changing the saved order. */
+export function filterSortVideos(videos: Video[], filter: VideoFilter, sort: VideoSort, completedLast = false): Video[] {
   const kept = videos.filter((v) => filter === 'ALL' || v.status === filter);
+  const done = (v: Video) => Number(completedLast && v.status === 'COMPLETED');
   const cmp: Record<VideoSort, (a: Video, b: Video) => number> = {
     ORDER: (a, b) => (a.position ?? 0) - (b.position ?? 0),
     TITLE: (a, b) => a.title.localeCompare(b.title),
     DURATION: (a, b) => (b.durationSeconds ?? -1) - (a.durationSeconds ?? -1),
     STATUS: (a, b) => STATUS_RANK[a.status] - STATUS_RANK[b.status] || (a.position ?? 0) - (b.position ?? 0),
   };
-  return [...kept].sort((a, b) => Number(!!a.removedFromSource) - Number(!!b.removedFromSource) || cmp[sort](a, b));
+  return [...kept].sort((a, b) => Number(!!a.removedFromSource) - Number(!!b.removedFromSource) || done(a) - done(b) || cmp[sort](a, b));
+}
+
+/**
+ * Moves `id` right before/after `targetId` in the full saved order. Working on the full list (not just
+ * what's on screen) means videos hidden by the view, e.g. completed ones parked at the end, keep their slots.
+ */
+export function moveRelative(ids: string[], id: string, targetId: string, where: 'before' | 'after'): string[] {
+  if (id === targetId || !ids.includes(id) || !ids.includes(targetId)) return ids;
+  const rest = ids.filter((x) => x !== id);
+  const at = rest.indexOf(targetId) + (where === 'after' ? 1 : 0);
+  return [...rest.slice(0, at), id, ...rest.slice(at)];
 }
 
 /** First video worth watching next: unfinished, still in the source, preferring in-progress ones. */

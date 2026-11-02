@@ -89,6 +89,8 @@ export interface Playlist {
   channelTitle: string | null;
   lastSyncedAt: string | null;
   isCustomized: boolean;
+  /** The student reordered the videos; sync keeps that order. */
+  customOrder: boolean;
   createdAt: string;
   stats: Stats;
   placementId?: string;

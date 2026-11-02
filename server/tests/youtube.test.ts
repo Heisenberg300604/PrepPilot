@@ -501,3 +501,70 @@ describe('duplicate videos across the library', () => {
     expect((await a.post(`/api/playlists/${pid}/sync`)).body.data).toMatchObject({ addedItems: 0, skippedDuplicates: 0 });
   });
 });
+
+describe('custom playlist order', () => {
+  const PLO = 'PLorderorder1';
+  const urlO = `https://www.youtube.com/playlist?list=${PLO}`;
+  const titles = async (a: any, pid: string) => (await a.get(`/api/playlists/${pid}`)).body.data.videos.map((v: any) => v.title);
+
+  async function seeded() {
+    const h = makeHarness();
+    const a = h.as(h.newUser());
+    const { subject } = await seedWorkspace(a);
+    h.youtube.playlists.set(PLO, ytPlaylist(PLO, [1, 2, 3, 4].map((n) => ytVideo(n))));
+    const pid = (await a.post('/api/playlists/import', { url: urlO, subjectId: subject.id })).body.data.playlist.id;
+    const vids = (await a.get(`/api/playlists/${pid}`)).body.data.videos;
+    return { h, a, pid, ids: vids.map((v: any) => v.id) as string[] };
+  }
+
+  it('saves a new order, and sync keeps it while appending new videos and parking removed ones', async () => {
+    const { h, a, pid, ids } = await seeded();
+    expect((await a.put(`/api/playlists/${pid}/order`, { videoIds: [ids[3], ids[0], ids[2], ids[1]] })).status).toBe(200);
+    expect(await titles(a, pid)).toEqual(['Lecture 4', 'Lecture 1', 'Lecture 3', 'Lecture 2']);
+    expect((await a.get(`/api/playlists/${pid}`)).body.data.customOrder).toBe(true);
+
+    // YouTube drops lecture 3 and adds lecture 5
+    h.youtube.playlists.set(PLO, ytPlaylist(PLO, [1, 2, 4, 5].map((n) => ytVideo(n))));
+    await a.post(`/api/playlists/${pid}/sync`);
+    const after = (await a.get(`/api/playlists/${pid}`)).body.data.videos;
+    expect(after.map((v: any) => [v.title, v.removedFromSource])).toEqual([
+      ['Lecture 4', false],
+      ['Lecture 1', false],
+      ['Lecture 2', false],
+      ['Lecture 5', false],
+      ['Lecture 3', true],
+    ]);
+  });
+
+  it('resetting goes back to YouTube order on the next sync', async () => {
+    const { a, pid, ids } = await seeded();
+    await a.put(`/api/playlists/${pid}/order`, { videoIds: [...ids].reverse() });
+    expect((await a.delete(`/api/playlists/${pid}/order`)).status).toBe(200);
+    await a.post(`/api/playlists/${pid}/sync`);
+    expect(await titles(a, pid)).toEqual(['Lecture 1', 'Lecture 2', 'Lecture 3', 'Lecture 4']);
+    expect((await a.get(`/api/playlists/${pid}`)).body.data.customOrder).toBe(false);
+  });
+
+  it('rejects stale or partial orders, and other users', async () => {
+    const { h, a, pid, ids } = await seeded();
+    expect((await a.put(`/api/playlists/${pid}/order`, { videoIds: ids.slice(0, 3) })).status).toBe(409);
+    expect((await a.put(`/api/playlists/${pid}/order`, { videoIds: [...ids, ids[0]] })).status).toBe(409);
+    expect((await a.put(`/api/playlists/${pid}/order`, { videoIds: [ids[0], ids[1], ids[2], 'someoneelse'] })).status).toBe(409);
+    expect(await titles(a, pid)).toEqual(['Lecture 1', 'Lecture 2', 'Lecture 3', 'Lecture 4']);
+    const other = h.as(h.newUser());
+    expect((await other.put(`/api/playlists/${pid}/order`, { videoIds: [...ids].reverse() })).status).toBe(404);
+    expect((await other.delete(`/api/playlists/${pid}/order`)).status).toBe(404);
+  });
+
+  it('works for local collections too', async () => {
+    const h = makeHarness();
+    const a = h.as(h.newUser());
+    const { subject } = await seedWorkspace(a);
+    const pl = (await a.post('/api/playlists', { title: 'Mine', subjectId: subject.id })).body.data;
+    const v1 = (await a.post('/api/videos', { url: 'https://youtu.be/dQw4w9WgXcQ', title: 'One', playlistId: pl.id })).body.data;
+    const v2 = (await a.post('/api/videos', { url: 'https://youtu.be/9bZkp7q19f0', title: 'Two', playlistId: pl.id })).body.data;
+    await a.put(`/api/playlists/${pl.id}/order`, { videoIds: [v2.id, v1.id] });
+    expect(await titles(a, pl.id)).toEqual(['Two', 'One']);
+    expect((await a.delete(`/api/playlists/${pl.id}/order`)).status).toBe(422);
+  });
+});

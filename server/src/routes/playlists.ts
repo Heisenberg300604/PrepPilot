@@ -71,7 +71,7 @@ export function playlistsRouter(db: Db, yt: YouTubeApi, expensive: import('expre
         // an explicit choice replaces earlier exclusions for the videos on this page of YouTube results
         await tx.playlistExclusion.deleteMany({ where: { playlistId: playlist.id, youtubeVideoId: { in: chosen.map((v) => v.youtubeVideoId) } } });
         const { map, created } = await upsertYoutubeVideos(tx, userId, chosen);
-        const sync = await syncPlaylistItems(tx, playlist.id, chosen, map);
+        const sync = await syncPlaylistItems(tx, playlist.id, chosen, map, { keepOrder: playlist.customOrder });
         let removedNow = 0;
         if (skipped.length) {
           // previously imported but now deselected -> remove them (and remember), same as a manual removal
@@ -186,13 +186,44 @@ export function playlistsRouter(db: Db, yt: YouTubeApi, expensive: import('expre
         }
         const videos = c.videos.filter((v) => !excluded.has(v.youtubeVideoId));
         const { map, created } = await upsertYoutubeVideos(tx, userId, videos);
-        const sync = await syncPlaylistItems(tx, playlist.id, videos, map);
+        const sync = await syncPlaylistItems(tx, playlist.id, videos, map, { keepOrder: playlist.customOrder });
         await recordActivity(tx, userId, 'PLAYLIST_SYNCED', { playlistId: playlist.id, metadata: { added: sync.added, removed: sync.removed, restored: restore.length } });
         return { playlist, newVideos: created, addedItems: sync.added, removedFromSource: sync.removed, skippedExcluded: excluded.size, skippedDuplicates: dupeVideos.length };
       },
       { timeout: 60_000, maxWait: 10_000 },
     );
     ok(res, { ...result, playlist: serializePlaylist(result.playlist, await buildIndex(db, userId)), truncated: c.truncated });
+  });
+
+  /**
+   * Saves the student's own order. `videoIds` must be exactly the playlist's live videos; items flagged as
+   * removed from YouTube stay parked after them. Sync keeps this order from now on.
+   */
+  r.put('/:id/order', async (req, res) => {
+    const { id } = idParam.parse(req.params);
+    const { videoIds } = z.object({ videoIds: z.array(z.string().max(64)).min(1).max(5000) }).parse(req.body);
+    const userId = req.user.id;
+    await own.playlist(db, userId, id);
+    await db.$transaction(async (tx) => {
+      const items = await tx.playlistVideo.findMany({ where: { playlistId: id }, orderBy: { position: 'asc' } });
+      const live = items.filter((i) => !i.removedFromSource);
+      const wanted = new Set(videoIds);
+      if (wanted.size !== videoIds.length || wanted.size !== live.length || live.some((i) => !wanted.has(i.videoId))) throw conflict('This playlist changed since it was loaded. Refresh and try again.');
+      const byVideo = new Map(items.map((i) => [i.videoId, i] as const));
+      const ordered = [...videoIds.map((v) => byVideo.get(v)!), ...items.filter((i) => i.removedFromSource)];
+      for (const [position, item] of ordered.entries()) if (item.position !== position) await tx.playlistVideo.update({ where: { id: item.id }, data: { position } });
+      await tx.playlist.update({ where: { id }, data: { customOrder: true } });
+    });
+    ok(res, { ok: true });
+  });
+
+  /** Forget the custom order; the next sync puts videos back in YouTube order. */
+  r.delete('/:id/order', async (req, res) => {
+    const { id } = idParam.parse(req.params);
+    const playlist = await own.playlist(db, req.user.id, id);
+    if (!playlist.youtubePlaylistId) throw unprocessable('Local collections have no YouTube order to go back to.');
+    await db.playlist.update({ where: { id }, data: { customOrder: false } });
+    ok(res, { ok: true });
   });
 
   /** Remove selected videos from this playlist. Imported playlists remember the removal (restorable). */

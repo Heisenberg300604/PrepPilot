@@ -53,6 +53,7 @@ export function serializePlaylist(p: any, idx: LibraryIndex, extra: Record<strin
     channelTitle: p.channelTitle,
     lastSyncedAt: p.lastSyncedAt,
     isCustomized: p.isCustomized,
+    customOrder: p.customOrder,
     createdAt: p.createdAt,
     stats: idx.stats(idx.playlistVideos.get(p.id) ?? EMPTY),
     ...extra,

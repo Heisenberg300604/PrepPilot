@@ -181,6 +181,8 @@ model Playlist {
   channelTitle      String?
   /// True once the user edited the title/description locally; sync then leaves those fields alone.
   isCustomized      Boolean   @default(false)
+  /// True once the user reordered the videos; sync then keeps their order and appends new videos at the end.
+  customOrder       Boolean   @default(false)
   lastSyncedAt      DateTime?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
