@@ -119,6 +119,7 @@ export default function PlaylistPage() {
       onSuccess: (r) => {
         const bits = [`${plural(r.newVideos, 'new video')}`];
         if (r.removedFromSource) bits.push(`${plural(r.removedFromSource, 'video')} no longer in the YouTube playlist (kept, flagged)`);
+        if (r.skippedDuplicates) bits.push(`${plural(r.skippedDuplicates, 'video')} skipped because ${r.skippedDuplicates === 1 ? 'it is' : 'they are'} already in your library (see “Removed videos”)`);
         toast.success(`Synchronised — ${bits.join(', ')}. Your progress was not changed.`);
       },
     });

@@ -78,6 +78,7 @@ export const keys = {
   tasks: ['tasks'] as QueryKey,
   activity: ['activity'] as QueryKey,
   search: (q: string) => ['search', q] as QueryKey,
+  resources: (examId: string) => ['resources', examId] as QueryKey,
 };
 
 /**

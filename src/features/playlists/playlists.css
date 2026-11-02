@@ -57,6 +57,11 @@
   padding: 7px 10px;
   font-size: 13.5px;
 }
+.preview-dup {
+  margin-right: 6px;
+  font-size: 11px;
+  padding: 1px 7px;
+}
 .preview-list li + li {
   border-top: 1px solid var(--border);
 }

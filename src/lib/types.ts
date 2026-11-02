@@ -173,6 +173,8 @@ export interface PlaylistPreview {
   alreadyKnownVideoCount: number;
   /** YouTube ids the user previously removed from this playlist (pre-unchecked in the picker). */
   excludedVideoIds: string[];
+  /** YouTube ids already elsewhere in the library (pre-unchecked so lectures aren't duplicated). */
+  duplicateVideoIds: string[];
   videos: { youtubeVideoId: string; title: string; thumbnailUrl: string | null; durationSeconds: number | null; availability: Availability; position: number }[];
 }
 
@@ -192,6 +194,8 @@ export interface SyncResult {
   newVideos: number;
   addedItems: number;
   removedFromSource: number;
+  /** New videos left out because they're already elsewhere in the library (stored as exclusions). */
+  skippedDuplicates: number;
   truncated: boolean;
 }
 
@@ -250,10 +254,11 @@ export interface Dashboard {
 
 export interface Activity {
   id: string;
-  type: 'VIDEO_OPENED' | 'VIDEO_COMPLETED' | 'PLAYLIST_IMPORTED' | 'PLAYLIST_SYNCED' | 'TASK_COMPLETED' | 'FOLDER_CREATED' | 'EXAM_CREATED';
+  type: 'VIDEO_OPENED' | 'VIDEO_COMPLETED' | 'PLAYLIST_IMPORTED' | 'PLAYLIST_SYNCED' | 'TASK_COMPLETED' | 'FOLDER_CREATED' | 'EXAM_CREATED' | 'MOCK_ATTEMPTED';
   createdAt: string;
   video: { id: string; title: string } | null;
   playlist: { id: string; title: string } | null;
+  metadata?: Record<string, unknown> | null;
 }
 
 export interface SearchResults {
@@ -273,4 +278,55 @@ export interface VideoList {
 export interface Destination {
   subjectId: string;
   folderId: string | null;
+}
+
+export type LinkCategory = 'OFFICIAL' | 'SYLLABUS' | 'PYQ' | 'NOTES' | 'OTHER';
+export type MockTestType = 'FULL' | 'SECTIONAL' | 'PYQ';
+
+export interface ExamLink {
+  id: string;
+  examId: string;
+  title: string;
+  url: string;
+  category: LinkCategory;
+  pinned: boolean;
+  displayOrder: number;
+  createdAt: string;
+}
+
+export interface MockAttempt {
+  id: string;
+  mockTestId: string;
+  score: number;
+  maxScore: number;
+  correct: number | null;
+  wrong: number | null;
+  skipped: number | null;
+  timeMinutes: number | null;
+  reflection: string | null;
+  /** Calendar date, YYYY-MM-DD. */
+  attemptedOn: string;
+  createdAt: string;
+}
+
+export interface MockTest {
+  id: string;
+  examId: string;
+  title: string;
+  url: string;
+  testType: MockTestType;
+  maxScore: number;
+  durationMinutes: number | null;
+  /** Marks per correct / wrong answer (wrong is ≤ 0). Both set → the score can be calculated from counts. */
+  marksCorrect: number | null;
+  marksWrong: number | null;
+  displayOrder: number;
+  createdAt: string;
+  /** Oldest first. */
+  attempts: MockAttempt[];
+}
+
+export interface ExamResources {
+  links: ExamLink[];
+  tests: MockTest[];
 }

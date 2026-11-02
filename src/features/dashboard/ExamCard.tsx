@@ -6,6 +6,7 @@ import { useDialogs } from '@/lib/dialogs';
 import { daysUntil, formatDate, plural } from '@/lib/format';
 import { toast } from '@/lib/toast';
 import type { Exam } from '@/lib/types';
+import { ExamEmblem } from '@/features/exams/examIcons';
 
 export function examCountdown(examDate: string | null, today: string): string | null {
   if (!examDate) return null;
@@ -35,7 +36,9 @@ export function ExamCard({ exam, today }: { exam: Exam; today: string }) {
   return (
     <article className="exam-card">
       <div className="exam-card-top">
-        <span className="exam-emblem" style={exam.color ? { background: exam.color } : undefined} aria-hidden />
+        <span className="exam-emblem" style={exam.color ? { background: exam.color } : undefined} aria-hidden>
+          <ExamEmblem icon={exam.icon} size={18} />
+        </span>
         <Menu
           label={`Actions for ${exam.name}`}
           trigger={<MoreHorizontal size={18} />}

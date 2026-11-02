@@ -51,6 +51,21 @@ enum ActivityType {
   TASK_COMPLETED
   FOLDER_CREATED
   EXAM_CREATED
+  MOCK_ATTEMPTED
+}
+
+enum LinkCategory {
+  OFFICIAL
+  SYLLABUS
+  PYQ
+  NOTES
+  OTHER
+}
+
+enum MockTestType {
+  FULL
+  SECTIONAL
+  PYQ
 }
 
 model UserProfile {
@@ -78,6 +93,9 @@ model UserProfile {
   favorites      Favorite[]
   tasks          StudyTask[]
   activity       StudyActivity[]
+  examLinks      ExamLink[]
+  mockTests      MockTest[]
+  mockAttempts   MockAttempt[]
 }
 
 model Exam {
@@ -98,6 +116,8 @@ model Exam {
   tasks    StudyTask[]
   playlistPlacements PlaylistPlacement[]
   videoPlacements    VideoPlacement[]
+  links     ExamLink[]
+  mockTests MockTest[]
 
   @@index([userId, status, displayOrder])
 }
@@ -354,6 +374,76 @@ model StudyTask {
 
   @@index([userId, scheduledDate])
   @@index([userId, status, scheduledDate])
+}
+
+/// A bookmark the student wants close at hand for one exam (official portal, syllabus, notes…).
+model ExamLink {
+  id           String       @id @default(cuid())
+  userId       String
+  examId       String
+  title        String
+  url          String
+  category     LinkCategory @default(OTHER)
+  /// Pinned links are also shown in the exam header.
+  pinned       Boolean      @default(false)
+  displayOrder Int          @default(0)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  user UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exam Exam        @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([examId, displayOrder])
+}
+
+/// An external practice test (PrepHub, Testbook…). The test itself lives on that site; we track attempts.
+model MockTest {
+  id              String       @id @default(cuid())
+  userId          String
+  examId          String
+  title           String
+  url             String
+  testType        MockTestType @default(FULL)
+  maxScore        Float
+  durationMinutes Int?
+  /// Marks per correct / wrong answer (e.g. 3 and -1). When both are set, the score is calculated from counts.
+  marksCorrect    Float?
+  marksWrong      Float?
+  displayOrder    Int          @default(0)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  user     UserProfile   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exam     Exam          @relation(fields: [examId], references: [id], onDelete: Cascade)
+  attempts MockAttempt[]
+
+  @@index([userId])
+  @@index([examId, displayOrder])
+}
+
+model MockAttempt {
+  id          String   @id @default(cuid())
+  userId      String
+  mockTestId  String
+  /// Can be negative or fractional with negative marking.
+  score       Float
+  /// Snapshot of the test's max score at the time, so later edits don't rewrite history.
+  maxScore    Float
+  correct     Int?
+  wrong       Int?
+  skipped     Int?
+  timeMinutes Int?
+  reflection  String?
+  /// Calendar date (no time zone), the student's local YYYY-MM-DD.
+  attemptedOn DateTime @db.Date
+  createdAt   DateTime @default(now())
+
+  user     UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mockTest MockTest    @relation(fields: [mockTestId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([mockTestId, attemptedOn])
 }
 
 model StudyActivity {

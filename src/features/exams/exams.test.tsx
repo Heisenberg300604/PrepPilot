@@ -95,9 +95,10 @@ describe('ExamDialog', () => {
     fireEvent.change(screen.getByLabelText('Exam name'), { target: { value: '  CDS 2027 ' } });
     fireEvent.change(screen.getByLabelText(/Exam date/), { target: { value: '2027-04-11' } });
     fireEvent.click(screen.getByLabelText('Emerald'));
+    fireEvent.click(screen.getByLabelText('Air Force'));
     fireEvent.click(screen.getByRole('button', { name: 'Create exam' }));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
-    expect(api).toHaveBeenCalledWith('/exams', expect.objectContaining({ method: 'POST', body: { name: 'CDS 2027', description: null, examDate: '2027-04-11', color: '#059669' } }));
+    expect(api).toHaveBeenCalledWith('/exams', expect.objectContaining({ method: 'POST', body: { name: 'CDS 2027', description: null, examDate: '2027-04-11', color: '#059669', icon: 'plane' } }));
   });
 
   it('keeps the form open when the server rejects the request', async () => {

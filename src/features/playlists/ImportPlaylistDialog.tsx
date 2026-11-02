@@ -20,6 +20,7 @@ export default function ImportPlaylistDialog({ destination = null, onClose }: { 
   const lastClicked = useRef<number | null>(null);
   const [dest, setDest] = useState<Destination | null>(destination);
   const [error, setError] = useState<{ message: string; retry: boolean } | null>(null);
+  const duplicateIds = new Set(preview?.duplicateVideoIds ?? []);
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [destError, setDestError] = useState<string | null>(null);
   const meta = useMeta();
@@ -41,7 +42,7 @@ export default function ImportPlaylistDialog({ destination = null, onClose }: { 
       {
         onSuccess: (p) => {
           setPreview(p);
-          setSelected(initialSelection(p.videos, p.excludedVideoIds));
+          setSelected(initialSelection(p.videos, [...p.excludedVideoIds, ...p.duplicateVideoIds]));
           lastClicked.current = null;
         },
         onError: (err) => setError(importErrorMessage(err)),
@@ -191,9 +192,19 @@ export default function ImportPlaylistDialog({ destination = null, onClose }: { 
                 <span>{plural(preview.excludedVideoIds.length, 'video')} you removed from this playlist before {preview.excludedVideoIds.length === 1 ? 'is' : 'are'} left unchecked. Tick {preview.excludedVideoIds.length === 1 ? 'it' : 'them'} to bring {preview.excludedVideoIds.length === 1 ? 'it' : 'them'} back.</span>
               </div>
             )}
+            {preview.duplicateVideoIds.length > 0 && (
+              <div className="import-notice info" role="status">
+                <Info size={18} aria-hidden />
+                <span>
+                  {plural(preview.duplicateVideoIds.length, 'video')} {preview.duplicateVideoIds.length === 1 ? 'is' : 'are'} already somewhere else in your library, so {preview.duplicateVideoIds.length === 1 ? 'it is' : 'they are'} left unchecked to avoid duplicates
+                  {preview.alreadyImportedPlaylistId ? ' (and will be taken out of this playlist)' : ''}. Tick {preview.duplicateVideoIds.length === 1 ? 'it' : 'them'} to keep {preview.duplicateVideoIds.length === 1 ? 'it' : 'them'} here too.
+                </span>
+              </div>
+            )}
             <ol className="preview-list" aria-label="Videos in this playlist. Untick any you do not want." tabIndex={0}>
               {preview.videos.map((v, i) => {
                 const on = selected.has(v.youtubeVideoId);
+                const dup = duplicateIds.has(v.youtubeVideoId);
                 return (
                   <li key={v.youtubeVideoId} className={on ? '' : 'is-off'}>
                     <input
@@ -212,6 +223,7 @@ export default function ImportPlaylistDialog({ destination = null, onClose }: { 
                     <span className="preview-num">{v.position + 1}</span>
                     <Thumb src={v.thumbnailUrl} />
                     <span className="truncate" title={v.title}>
+                      {dup && <span className="tag preview-dup">In library</span>}
                       {v.title}
                     </span>
                     <span className="muted">{v.availability === 'AVAILABLE' ? formatDuration(v.durationSeconds) : 'Unavailable'}</span>

@@ -1,4 +1,4 @@
-import { CheckCircle2, FolderPlus, GraduationCap, History, ListVideo, PlayCircle, RefreshCw, type LucideIcon } from 'lucide-react';
+import { CheckCircle2, ClipboardCheck, FolderPlus, GraduationCap, History, ListVideo, PlayCircle, RefreshCw, type LucideIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui';
 import { useActivity } from '@/features/planner/queries';
@@ -13,6 +13,7 @@ const META: Record<Activity['type'], { icon: LucideIcon; verb: string }> = {
   TASK_COMPLETED: { icon: CheckCircle2, verb: 'Finished a study task' },
   FOLDER_CREATED: { icon: FolderPlus, verb: 'Created a folder' },
   EXAM_CREATED: { icon: GraduationCap, verb: 'Created an exam' },
+  MOCK_ATTEMPTED: { icon: ClipboardCheck, verb: 'Took a mock test' },
 };
 
 /** What the activity targets, as text + optional link. Deleted targets degrade to plain text. */
@@ -20,6 +21,10 @@ export function describeActivity(a: Activity): { verb: string; target: string | 
   const { verb } = META[a.type];
   if (a.video) return { verb, target: a.video.title, to: `/watch/${a.video.id}` };
   if (a.playlist) return { verb, target: a.playlist.title, to: `/playlists/${a.playlist.id}` };
+  if (a.type === 'MOCK_ATTEMPTED' && a.metadata) {
+    const m = a.metadata as { title?: string; score?: number; maxScore?: number };
+    return { verb, target: m.title ? `${m.title} (${m.score}/${m.maxScore})` : null, to: null };
+  }
   if (a.type === 'VIDEO_OPENED' || a.type === 'VIDEO_COMPLETED') return { verb, target: 'a lecture that has since been removed', to: null };
   if (a.type === 'PLAYLIST_IMPORTED' || a.type === 'PLAYLIST_SYNCED') return { verb, target: 'a playlist that has since been removed', to: null };
   return { verb, target: null, to: null };

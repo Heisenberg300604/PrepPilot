@@ -76,6 +76,47 @@
   box-shadow: 0 0 0 2px var(--surface), 0 0 0 5px var(--accent);
 }
 
+.icon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+  gap: 6px;
+}
+.icon-choice {
+  position: relative;
+  cursor: pointer;
+}
+.icon-choice input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+.icon-choice-tile {
+  height: 40px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  transition: background 0.12s, color 0.12s;
+}
+.icon-choice:hover .icon-choice-tile {
+  color: var(--text);
+  background: var(--surface-3);
+}
+.icon-choice input:checked + .icon-choice-tile {
+  color: var(--swatch, var(--accent-text));
+  background: color-mix(in srgb, var(--swatch, var(--accent)) 14%, var(--surface));
+  border-color: var(--swatch, var(--accent));
+}
+.icon-choice input:focus-visible + .icon-choice-tile {
+  box-shadow: var(--focus);
+}
+
 .emblem {
   width: 42px;
   height: 42px;

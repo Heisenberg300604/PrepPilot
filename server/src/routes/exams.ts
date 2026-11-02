@@ -134,7 +134,7 @@ export function examsRouter(db: Db) {
     ok(res, { deleted: true });
   });
 
-  // Copies the structure only (subjects + folder tree). Content and progress are not copied.
+  // Copies the structure (subjects + folder tree) plus quick links and mock tests. Content, progress and mock attempts are not copied.
   r.post('/:id/duplicate', async (req, res) => {
     const { id } = idParam.parse(req.params);
     const userId = req.user.id;
@@ -166,6 +166,10 @@ export function examsRouter(db: Db) {
           pending = next;
         }
       }
+      const links = await tx.examLink.findMany({ where: { examId: id, userId } });
+      const tests = await tx.mockTest.findMany({ where: { examId: id, userId } });
+      if (links.length) await tx.examLink.createMany({ data: links.map(({ id: _id, createdAt: _c, updatedAt: _u, ...l }) => ({ ...l, examId: copy.id })) });
+      if (tests.length) await tx.mockTest.createMany({ data: tests.map(({ id: _id, createdAt: _c, updatedAt: _u, ...t }) => ({ ...t, examId: copy.id })) });
       return copy.id;
     });
     const exam = await db.exam.findFirstOrThrow({ where: { id: copyId, userId }, include: { _count: { select: { subjects: true } } } });

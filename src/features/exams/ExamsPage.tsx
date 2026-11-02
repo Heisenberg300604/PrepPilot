@@ -1,4 +1,5 @@
 import { BookOpen, Calendar, GraduationCap, MoreHorizontal, Play, Plus, Search } from 'lucide-react';
+import { ExamEmblem } from './examIcons';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button, CardSkeletons, EmptyState, ErrorState, Menu, PageHeader, Progress, Segmented, type MenuItem } from '@/components/ui';
@@ -21,7 +22,7 @@ export function ExamCard({ exam, menu }: { exam: Exam; menu: MenuItem[] }) {
     <article className={`entity-card ${exam.status === 'ARCHIVED' ? 'is-muted' : ''}`} style={exam.color ? ({ ['--emblem' as string]: exam.color } as React.CSSProperties) : undefined}>
       <div className="entity-top">
         <div className="emblem">
-          <GraduationCap size={22} aria-hidden />
+          <ExamEmblem icon={exam.icon} />
         </div>
         <div className="entity-title">
           <h3>

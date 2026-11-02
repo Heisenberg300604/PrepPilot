@@ -17,6 +17,7 @@ import { placementsRouter } from './routes/placements.js';
 import { playlistsRouter } from './routes/playlists.js';
 import { videosRouter } from './routes/videos.js';
 import { tasksRouter } from './routes/tasks.js';
+import { resourcesRouter } from './routes/resources.js';
 import { profileRouter, type IdentityLookup } from './routes/profile.js';
 import { dashboardRouter } from './routes/dashboard.js';
 import { webhooksRouter } from './routes/webhooks.js';
@@ -80,6 +81,7 @@ export function createApp({ config, db, resolveUser, youtube, lookupIdentity, ra
   api.use('/playlists', playlistsRouter(db, yt, limiter(60_000, 20), playlistCacheTtlMs));
   api.use('/videos', videosRouter(db, yt));
   api.use('/tasks', tasksRouter(db));
+  api.use('/', resourcesRouter(db));
   api.use('/', dashboardRouter(db));
   app.use('/api', api);
 

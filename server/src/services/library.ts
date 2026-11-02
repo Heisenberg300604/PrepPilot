@@ -190,3 +190,25 @@ export async function removePlaylistItems(tx: Tx, userId: string, playlist: { id
   }
   return { removed: items.length, deletedVideos };
 }
+
+/**
+ * YouTube ids (from `youtubeVideoIds`) the user already has somewhere else in their library — placed
+ * directly in a subject/folder or in another playlist. Importing/syncing skips these so the same lecture
+ * never shows up twice.
+ *
+ * `includeMembers` also reports videos that are already in `playlistId` (the import preview, where the user
+ * reviews the list and unticking removes them). Sync leaves it off so it never silently drops existing items.
+ */
+export async function duplicatesElsewhere(db: Db | Tx, userId: string, youtubeVideoIds: string[], playlistId: string | null, { includeMembers = false } = {}): Promise<Set<string>> {
+  if (!youtubeVideoIds.length) return new Set();
+  const rows = await db.video.findMany({
+    where: {
+      userId,
+      youtubeVideoId: { in: youtubeVideoIds },
+      OR: [{ placements: { some: {} } }, { playlistItems: { some: playlistId ? { playlistId: { not: playlistId } } : {} } }],
+      ...(playlistId && !includeMembers ? { NOT: { playlistItems: { some: { playlistId } } } } : {}),
+    },
+    select: { youtubeVideoId: true },
+  });
+  return new Set(rows.map((r) => r.youtubeVideoId!));
+}

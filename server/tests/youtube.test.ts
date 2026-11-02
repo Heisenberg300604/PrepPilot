@@ -413,3 +413,91 @@ describe('choosing which videos to keep from a playlist', () => {
     expect((await a.get(`/api/playlists/${pid}`)).body.data.videos).toHaveLength(5);
   });
 });
+
+describe('duplicate videos across the library', () => {
+  const PLD = 'PLdupesdupes1';
+  const urlD = `https://www.youtube.com/playlist?list=${PLD}`;
+  const idOf = (n: number) => ytVideo(n).youtubeVideoId;
+
+  it('preview flags videos already elsewhere in the library, and the default selection imports only the rest', async () => {
+    const h = makeHarness();
+    const a = h.as(h.newUser());
+    const { subject } = await seedWorkspace(a);
+    // two lectures already added manually, one in another playlist
+    await a.post('/api/videos', { url: `https://youtu.be/${idOf(1)}`, title: 'Manual 1', subjectId: subject.id });
+    await a.post('/api/videos', { url: `https://youtu.be/${idOf(2)}`, title: 'Manual 2', subjectId: subject.id });
+    h.youtube.playlists.set('PLotherlist01', ytPlaylist('PLotherlist01', [ytVideo(3)]));
+    await a.post('/api/playlists/import', { url: 'https://www.youtube.com/playlist?list=PLotherlist01', subjectId: subject.id });
+
+    h.youtube.playlists.set(PLD, ytPlaylist(PLD, [1, 2, 3, 4, 5].map((n) => ytVideo(n))));
+    const preview = (await a.post('/api/playlists/preview', { url: urlD })).body.data;
+    expect(preview.duplicateVideoIds).toEqual([idOf(1), idOf(2), idOf(3)]);
+
+    // what the dialog sends by default: everything except the duplicates
+    const imp = await a.post('/api/playlists/import', { url: urlD, subjectId: subject.id, selectedVideoIds: [idOf(4), idOf(5)] });
+    expect(imp.body.data).toMatchObject({ createdVideos: 2, skippedVideos: 3 });
+    const pid = imp.body.data.playlist.id;
+    expect((await a.get(`/api/playlists/${pid}`)).body.data.videos.map((v: any) => v.title)).toEqual(['Lecture 4', 'Lecture 5']);
+    expect((await a.get('/api/videos')).body.data.total).toBe(5); // no duplicate records
+
+    // re-previewing the same playlist doesn't flag its own videos
+    const again = (await a.post('/api/playlists/preview', { url: urlD })).body.data;
+    expect(again.duplicateVideoIds).toEqual([idOf(1), idOf(2), idOf(3)]);
+    expect(again.excludedVideoIds.sort()).toEqual([idOf(1), idOf(2), idOf(3)].sort());
+  });
+
+  it('a playlist video later placed in another folder is flagged on re-import, and unticking takes it out of the playlist', async () => {
+    const h = makeHarness();
+    const a = h.as(h.newUser());
+    const { subject, revision } = await seedWorkspace(a);
+    h.youtube.playlists.set(PLD, ytPlaylist(PLD, [1, 2, 3].map((n) => ytVideo(n))));
+    const pid = (await a.post('/api/playlists/import', { url: urlD, subjectId: subject.id })).body.data.playlist.id;
+    const vids = (await a.get(`/api/playlists/${pid}`)).body.data.videos;
+    // the student copies lecture 3 into a "Hard topics" folder
+    expect((await a.post('/api/placements', { type: 'video', contentId: vids[2].id, subjectId: subject.id, folderId: revision.id })).status).toBe(201);
+
+    const preview = (await a.post('/api/playlists/preview', { url: urlD })).body.data;
+    expect(preview.duplicateVideoIds).toEqual([idOf(3)]);
+    await a.post('/api/playlists/import', { url: urlD, subjectId: subject.id, selectedVideoIds: [idOf(1), idOf(2)] });
+    const d = (await a.get(`/api/playlists/${pid}`)).body.data;
+    expect(d.videos.map((v: any) => v.title)).toEqual(['Lecture 1', 'Lecture 2']);
+    // still in the folder, once, and sync won't put it back in the playlist
+    const folder = (await a.get(`/api/subjects/${subject.id}/contents?folderId=${revision.id}`)).body.data;
+    expect(folder.videos.map((v: any) => v.title)).toEqual(['Lecture 3']);
+    expect((await a.post(`/api/playlists/${pid}/sync`)).body.data).toMatchObject({ addedItems: 0 });
+  });
+
+  it('sync never drops existing playlist videos just because they are also placed elsewhere', async () => {
+    const h = makeHarness();
+    const a = h.as(h.newUser());
+    const { subject, revision } = await seedWorkspace(a);
+    h.youtube.playlists.set(PLD, ytPlaylist(PLD, [ytVideo(1), ytVideo(2)]));
+    const pid = (await a.post('/api/playlists/import', { url: urlD, subjectId: subject.id })).body.data.playlist.id;
+    const vids = (await a.get(`/api/playlists/${pid}`)).body.data.videos;
+    await a.post('/api/placements', { type: 'video', contentId: vids[1].id, subjectId: subject.id, folderId: revision.id });
+    expect((await a.post(`/api/playlists/${pid}/sync`)).body.data).toMatchObject({ removedFromSource: 0, skippedDuplicates: 0 });
+    expect((await a.get(`/api/playlists/${pid}`)).body.data.videos).toHaveLength(2);
+  });
+
+  it('sync skips new videos that are already in the library and remembers them, restorable on request', async () => {
+    const h = makeHarness();
+    const a = h.as(h.newUser());
+    const { subject } = await seedWorkspace(a);
+    h.youtube.playlists.set(PLD, ytPlaylist(PLD, [ytVideo(1), ytVideo(2)]));
+    const pid = (await a.post('/api/playlists/import', { url: urlD, subjectId: subject.id })).body.data.playlist.id;
+    await a.post('/api/videos', { url: `https://youtu.be/${idOf(7)}`, title: 'Already have it', subjectId: subject.id });
+
+    h.youtube.playlists.set(PLD, ytPlaylist(PLD, [1, 2, 6, 7].map((n) => ytVideo(n))));
+    const s = (await a.post(`/api/playlists/${pid}/sync`)).body.data;
+    expect(s).toMatchObject({ addedItems: 1, skippedDuplicates: 1 });
+    const d = (await a.get(`/api/playlists/${pid}`)).body.data;
+    expect(d.videos.map((v: any) => v.title)).toEqual(['Lecture 1', 'Lecture 2', 'Lecture 6']);
+    expect(d.excludedVideos.map((e: any) => e.youtubeVideoId)).toEqual([idOf(7)]);
+
+    // existing members are never treated as duplicates, and a restore brings the skipped one in
+    const r = (await a.post(`/api/playlists/${pid}/sync`, { restore: [idOf(7)] })).body.data;
+    expect(r).toMatchObject({ addedItems: 1, skippedDuplicates: 0 });
+    expect((await a.get(`/api/playlists/${pid}`)).body.data.videos).toHaveLength(4);
+    expect((await a.post(`/api/playlists/${pid}/sync`)).body.data).toMatchObject({ addedItems: 0, skippedDuplicates: 0 });
+  });
+});

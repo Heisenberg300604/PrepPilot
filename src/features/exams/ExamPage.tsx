@@ -11,7 +11,11 @@ import { useDocumentTitle } from '@/lib/hooks';
 import { daysLeftLabel } from './examUtils';
 import { useExamActions } from './examActions';
 import { useExam } from './queries';
+import { ExamEmblem } from './examIcons';
 import { reorderedIds } from '@/features/subjects/folderTreeUtils';
+import { PinnedLinks, ResourcesSection } from '@/features/resources/ResourcesSection';
+import { useExamResources } from '@/features/resources/queries';
+import { fmtScore, mockSummary } from '@/features/resources/resourceUtils';
 import './exams.css';
 
 export default function ExamPage() {
@@ -22,6 +26,8 @@ export default function ExamPage() {
   const examActions = useExamActions();
   const subjectActions = useSubjectActions();
   const reorder = useReorderSubjects();
+  const resources = useExamResources(examId);
+  const mocks = mockSummary(resources.data?.tests ?? []);
   useDocumentTitle(exam.data?.name ?? 'Exam');
 
   if (exam.isLoading)
@@ -56,7 +62,7 @@ export default function ExamPage() {
       <section className="hero-card" aria-labelledby="exam-title" style={e.color ? ({ ['--emblem' as string]: e.color } as React.CSSProperties) : undefined}>
         <div className="hero-top">
           <div className="emblem emblem-lg">
-            <GraduationCap size={28} aria-hidden />
+            <ExamEmblem icon={e.icon} size={28} />
           </div>
           <div className="hero-title">
             <div className="eyebrow">Exam workspace</div>
@@ -71,6 +77,7 @@ export default function ExamPage() {
                 </span>
               )}
             </div>
+            <PinnedLinks resources={resources.data} />
           </div>
           <div className="hero-actions">
             <Button icon={<Pencil size={15} />} onClick={() => dialogs.open({ kind: 'exam', exam: e })}>
@@ -122,6 +129,14 @@ export default function ExamPage() {
             <strong>{e.stats.remaining}</strong>
             <span>Remaining</span>
           </div>
+          {mocks.total > 0 && (
+            <div className="stat">
+              <strong>
+                {mocks.attempted}/{mocks.total}
+              </strong>
+              <span>Mocks{mocks.last ? ` · last ${fmtScore(mocks.last.score)}` : ''}</span>
+            </div>
+          )}
         </div>
       </section>
 
@@ -157,6 +172,7 @@ export default function ExamPage() {
           ))}
         </div>
       )}
+      <ResourcesSection examId={e.id} />
       {examActions.dialogNode}
       {subjectActions.dialogNode}
     </>

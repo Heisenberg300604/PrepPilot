@@ -26,6 +26,15 @@ export const own = {
   async task(db: Client, userId: string, id: string) {
     return (await db.studyTask.findFirst({ where: { id, userId } })) ?? Promise.reject(notFound('Task'));
   },
+  async examLink(db: Client, userId: string, id: string) {
+    return (await db.examLink.findFirst({ where: { id, userId } })) ?? Promise.reject(notFound('Link'));
+  },
+  async mockTest(db: Client, userId: string, id: string) {
+    return (await db.mockTest.findFirst({ where: { id, userId } })) ?? Promise.reject(notFound('Mock test'));
+  },
+  async mockAttempt(db: Client, userId: string, id: string) {
+    return (await db.mockAttempt.findFirst({ where: { id, userId } })) ?? Promise.reject(notFound('Attempt'));
+  },
 };
 
 export interface Destination {

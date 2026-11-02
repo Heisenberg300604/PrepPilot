@@ -6,7 +6,7 @@ import { idParam, ok, optionalText, requiredText } from '../http.js';
 import { own, resolveDestination } from '../services/ownership.js';
 import { buildIndex } from '../services/stats.js';
 import { serializePlaylist, serializeVideo, videoInclude } from '../services/serializers.js';
-import { fetchPlaylist, labelLocations, PlaylistCache, removePlaylistItems, syncPlaylistItems, upsertPlaylistRecord, upsertYoutubeVideos } from '../services/library.js';
+import { duplicatesElsewhere, fetchPlaylist, labelLocations, PlaylistCache, removePlaylistItems, syncPlaylistItems, upsertPlaylistRecord, upsertYoutubeVideos } from '../services/library.js';
 import { recordActivity } from '../services/activity.js';
 import { parsePlaylistUrl } from '../youtube/parse.js';
 import type { YouTubeApi } from '../youtube/client.js';
@@ -30,10 +30,12 @@ export function playlistsRouter(db: Db, yt: YouTubeApi, expensive: import('expre
     const c = await fetchPlaylist(yt, cache, ytId);
     if (!c.videos.length) throw new AppError(422, 'EMPTY_PLAYLIST', 'This playlist has no videos to import.');
     const userId = req.user.id;
+    const ytIds = c.videos.map((v) => v.youtubeVideoId);
     const [existingPlaylist, existingVideos] = await Promise.all([
       db.playlist.findFirst({ where: { userId, youtubePlaylistId: ytId }, select: { id: true, exclusions: { select: { youtubeVideoId: true } } } }),
-      db.video.count({ where: { userId, youtubeVideoId: { in: c.videos.map((v) => v.youtubeVideoId) } } }),
+      db.video.count({ where: { userId, youtubeVideoId: { in: ytIds } } }),
     ]);
+    const duplicates = await duplicatesElsewhere(db, userId, ytIds, existingPlaylist?.id ?? null, { includeMembers: true });
     ok(res, {
       playlist: c.playlist,
       truncated: c.truncated,
@@ -43,6 +45,8 @@ export function playlistsRouter(db: Db, yt: YouTubeApi, expensive: import('expre
       alreadyKnownVideoCount: existingVideos,
       /** Videos the user previously removed from this playlist; the UI pre-unchecks them. */
       excludedVideoIds: existingPlaylist?.exclusions.map((e) => e.youtubeVideoId) ?? [],
+      /** Videos also elsewhere in the library (placed directly or in another playlist), even if already in this one; the UI pre-unchecks them. */
+      duplicateVideoIds: ytIds.filter((v) => duplicates.has(v)),
       videos: c.videos.map((v) => ({ youtubeVideoId: v.youtubeVideoId, title: v.title, thumbnailUrl: v.thumbnailUrl, durationSeconds: v.durationSeconds, availability: v.availability, position: v.position })),
     });
   });
@@ -171,11 +175,20 @@ export function playlistsRouter(db: Db, yt: YouTubeApi, expensive: import('expre
         const playlist = await upsertPlaylistRecord(tx, userId, c);
         if (restore.length) await tx.playlistExclusion.deleteMany({ where: { playlistId: id, youtubeVideoId: { in: restore } } });
         const excluded = new Set((await tx.playlistExclusion.findMany({ where: { playlistId: id }, select: { youtubeVideoId: true } })).map((e) => e.youtubeVideoId));
+        // New videos that are already elsewhere in the library are skipped and remembered as exclusions,
+        // so they never appear twice; they can be restored from the playlist's "Removed videos" list.
+        const restoring = new Set(restore);
+        const dupes = await duplicatesElsewhere(tx, userId, c.videos.filter((v) => !excluded.has(v.youtubeVideoId) && !restoring.has(v.youtubeVideoId)).map((v) => v.youtubeVideoId), id);
+        const dupeVideos = c.videos.filter((v) => dupes.has(v.youtubeVideoId));
+        if (dupeVideos.length) {
+          await tx.playlistExclusion.createMany({ data: dupeVideos.map((v) => ({ playlistId: id, youtubeVideoId: v.youtubeVideoId, title: v.title, thumbnailUrl: v.thumbnailUrl })), skipDuplicates: true });
+          dupeVideos.forEach((v) => excluded.add(v.youtubeVideoId));
+        }
         const videos = c.videos.filter((v) => !excluded.has(v.youtubeVideoId));
         const { map, created } = await upsertYoutubeVideos(tx, userId, videos);
         const sync = await syncPlaylistItems(tx, playlist.id, videos, map);
         await recordActivity(tx, userId, 'PLAYLIST_SYNCED', { playlistId: playlist.id, metadata: { added: sync.added, removed: sync.removed, restored: restore.length } });
-        return { playlist, newVideos: created, addedItems: sync.added, removedFromSource: sync.removed, skippedExcluded: excluded.size };
+        return { playlist, newVideos: created, addedItems: sync.added, removedFromSource: sync.removed, skippedExcluded: excluded.size, skippedDuplicates: dupeVideos.length };
       },
       { timeout: 60_000, maxWait: 10_000 },
     );
